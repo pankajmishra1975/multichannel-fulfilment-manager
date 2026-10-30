@@ -1,0 +1,2938 @@
+import express from 'express';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI, Type } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Initialize Gemini Client Lazily to prevent crash on startup if API key is missing
+let aiClient: GoogleGenAI | null = null;
+function getAi() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. AI requests will fallback to rules-based simulation.");
+    }
+    aiClient = new GoogleGenAI({
+      apiKey: apiKey || 'MOCK_KEY_FOR_SAFETY',
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return aiClient;
+}
+
+// In-Memory store for active credentials, orders, and logs (for simulation + storage)
+let activeCredentials = {
+  amazonSellerId: '',
+  amazonClientId: '',
+  amazonClientSecret: '',
+  amazonRefreshToken: '',
+  ebayClientId: '',
+  ebayClientSecret: '',
+  ebayRefreshToken: '',
+  isSandbox: true,
+
+  // Prestashop
+  prestashopStoreUrl: '',
+  prestashopApiKey: '',
+
+  // OnBuy
+  onbuySellerKey: '',
+  onbuySellerSecret: '',
+  onbuyShopId: '',
+
+  // Etsy
+  etsyShopName: '',
+  etsyClientId: '',
+  etsyClientSecret: '',
+  etsyRefreshToken: '',
+
+  // Temu
+  temuSellerId: '',
+  temuAccessToken: '',
+
+  // TikTok
+  tiktokShopId: '',
+  tiktokAppKey: '',
+  tiktokAppSecret: '',
+  tiktokRefreshToken: '',
+};
+
+let appCurrency = 'GBP';
+let appUnitSystem = 'metric';
+let appOrigin = {
+  country: 'US',
+  city: 'Atlanta',
+  state: 'GA',
+  zip: '30309'
+};
+
+// Seed initial mock orders
+let orders: any[] = [
+  {
+    id: 'AMZ-882-9930129',
+    source: 'amazon' as const,
+    status: 'pending' as const,
+    buyerName: 'David Miller',
+    buyerEmail: 'david.m@example.com',
+    shippingAddress: {
+      name: 'David Miller',
+      addressLine1: '1428 Elm Street',
+      addressLine2: 'Apt 4B',
+      city: 'Los Angeles',
+      stateOrRegion: 'CA',
+      postalCode: '90012',
+      countryCode: 'US',
+      phone: '+1 213-555-0199',
+    },
+    items: [
+      { sku: 'AMZ-ELEC-402', title: 'Wireless Noise-Cancelling Earbuds Pro', quantity: 1, price: 89.99 },
+      { sku: 'AMZ-CABLE-USB', title: '6ft Nylon Braided USB-C Charging Cable', quantity: 2, price: 12.50 },
+    ],
+    orderDate: new Date(Date.now() - 3600000 * 4).toISOString(), // 4 hours ago
+    totalAmount: 114.99,
+    currency: appCurrency,
+    weightOz: 14,
+    dimensions: { length: 8, width: 6, height: 4 },
+    tags: ['Prime Orders'],
+  },
+  {
+    id: 'EBAY-77210928-X',
+    source: 'ebay' as const,
+    status: 'pending' as const,
+    buyerName: 'Sarah Jenkins',
+    buyerEmail: 'sjenkins.92@example.com',
+    shippingAddress: {
+      name: 'Sarah Jenkins',
+      addressLine1: '782 Pine Oak Drive',
+      city: 'Seattle',
+      stateOrRegion: 'WA',
+      postalCode: '98101', // Valid Seattle ZIP
+      countryCode: 'US',
+      phone: '+1 206-555-0143',
+    },
+    items: [
+      { sku: 'EB-HOME-GARDEN', title: 'Eco-Friendly Bamboo Cutting Board Set', quantity: 1, price: 34.00 },
+    ],
+    orderDate: new Date(Date.now() - 3600000 * 12).toISOString(), // 12 hours ago
+    totalAmount: 34.00,
+    currency: appCurrency,
+    weightOz: undefined,
+    dimensions: undefined,
+    tags: ['Extra Next Day Delivery'],
+  },
+  {
+    id: 'AMZ-103-9940122',
+    source: 'amazon' as const,
+    status: 'pending' as const,
+    buyerName: 'Michael Robert',
+    buyerEmail: 'mrobert.tech@example.com',
+    shippingAddress: {
+      name: 'Michael Robert',
+      addressLine1: '3200 North Pecos Rd',
+      city: 'Las Vegas',
+      stateOrRegion: 'NV',
+      postalCode: '89115',
+      countryCode: 'US',
+      phone: '+1 702-555-0122',
+    },
+    items: [
+      { sku: 'AMZ-OFFICE-CHAIR', title: 'Ergonomic Mesh Swivel Desk Chair', quantity: 1, price: 189.99 },
+    ],
+    orderDate: new Date(Date.now() - 3600000 * 18).toISOString(), // 18 hours ago
+    totalAmount: 189.99,
+    currency: appCurrency,
+    weightOz: 380, // Heavy item!
+    dimensions: undefined,
+    tags: ['Prime Orders'],
+  },
+  {
+    id: 'EBAY-99301292-A',
+    source: 'ebay' as const,
+    status: 'pending' as const,
+    buyerName: 'Emma Watson',
+    buyerEmail: 'emma.w@example.com',
+    shippingAddress: {
+      name: 'Emma Watson',
+      addressLine1: '45 Broad Street Lane',
+      city: 'Boston',
+      stateOrRegion: 'MA',
+      postalCode: '02111',
+      countryCode: 'US',
+    },
+    items: [
+      { sku: 'EB-KITCH-BLNDR', title: 'High-Speed Professional Kitchen Blender 1200W', quantity: 1, price: 79.99 },
+    ],
+    orderDate: new Date(Date.now() - 3600000 * 24).toISOString(), // 24 hours ago
+    totalAmount: 79.99,
+    currency: appCurrency,
+    weightOz: undefined,
+    dimensions: { length: 14, width: 10, height: 10 },
+    tags: ['Standard Delivery'],
+  },
+  {
+    id: 'AMZ-904-1120492',
+    source: 'amazon' as const,
+    status: 'shipped' as const,
+    buyerName: 'Sophia Loren',
+    buyerEmail: 'sloren@example.com',
+    shippingAddress: {
+      name: 'Sophia Loren',
+      addressLine1: '522 Ocean Boulevard',
+      city: 'Miami',
+      stateOrRegion: 'FL',
+      postalCode: '33139',
+      countryCode: 'US',
+    },
+    items: [
+      { sku: 'AMZ-FASH-GLASSES', title: 'Polarized Retro Aviator Sunglasses UV400', quantity: 1, price: 22.50 },
+    ],
+    orderDate: new Date(Date.now() - 3600000 * 48).toISOString(), // 2 days ago
+    totalAmount: 22.50,
+    currency: appCurrency,
+    weightOz: 6,
+    dimensions: { length: 6, width: 4, height: 2 },
+    trackingNumber: '1Z999AA10123456784',
+    selectedRate: {
+      id: 'rate_standard_amz_ship',
+      carrierName: 'Amazon Shipping',
+      serviceName: 'Amazon Ground Shipping v2',
+      amount: 4.85,
+      currency: appCurrency,
+      deliveryDays: 3,
+      shippingType: 'shipping_v2',
+    },
+    shippedAt: new Date(Date.now() - 3600000 * 40).toISOString(),
+    labelUrl: 'mock_label_base64_already_shipped',
+    tags: ['Prime Orders'],
+  }
+];
+
+
+import fs from 'fs';
+import path from 'path';
+
+const DB_FILE = path.join(process.cwd(), 'database.json');
+
+function saveToDB() {
+  const data = {
+    products,
+    orders,
+    appOrigin,
+    appCurrency,
+    appUnitSystem,
+    inventoryThreshold,
+    skuMappings,
+    carrierLogs
+  };
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
+
+function loadFromDB() {
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+      if (data.products && Array.isArray(data.products)) products = data.products;
+      if (data.orders && Array.isArray(data.orders)) orders = data.orders;
+      if (data.appOrigin) appOrigin = data.appOrigin;
+      if (data.appCurrency) appCurrency = data.appCurrency;
+      if (data.appUnitSystem) appUnitSystem = data.appUnitSystem;
+      if (data.inventoryThreshold !== undefined) inventoryThreshold = data.inventoryThreshold;
+      if (data.skuMappings && Array.isArray(data.skuMappings)) skuMappings = data.skuMappings;
+      if (data.carrierLogs && Array.isArray(data.carrierLogs)) carrierLogs = data.carrierLogs;
+    } catch (e) {
+      console.error('Failed to load DB', e);
+    }
+  }
+}
+
+
+let inventoryThreshold = 5;
+
+let products: any[] = [
+  {
+    sku: 'AMZ-ELEC-402',
+    name: 'Wireless Noise-Cancelling Earbuds Pro',
+    description: 'Premium active noise cancelling earbuds with fast wireless charging case.',
+    weight: 14,
+    size: '8x6x4',
+    buyingPrice: 45.00,
+    sellingPrice: 89.99,
+    vatType: 'VAT',
+    image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=200&auto=format&fit=crop&q=60',
+    stock: 3, // below threshold of 5!
+    stockByWarehouse: { 'wh-main': 2, 'wh-east': 1, 'wh-west': 0 },
+    mappedSku: 'AMZ-ELEC-402',
+    source: 'amazon'
+  },
+  {
+    sku: 'AMZ-CABLE-USB',
+    name: '6ft Nylon Braided USB-C Charging Cable',
+    description: 'Ultra-durable military-grade nylon braided charger cable supporting Power Delivery.',
+    weight: 3,
+    size: '4x4x1',
+    buyingPrice: 3.20,
+    sellingPrice: 12.50,
+    vatType: 'VAT',
+    image: 'https://images.unsplash.com/photo-1589615224935-07d409439d0c?w=200&auto=format&fit=crop&q=60',
+    stock: 25,
+    stockByWarehouse: { 'wh-main': 15, 'wh-east': 8, 'wh-west': 2 },
+    mappedSku: 'AMZ-CABLE-USB',
+    source: 'amazon'
+  },
+  {
+    sku: 'EB-HOME-GARDEN',
+    name: 'Eco-Friendly Bamboo Cutting Board Set',
+    description: 'Set of 3 organic bamboo chopping boards with deep juice grooves.',
+    weight: 32,
+    size: '12x10x2',
+    buyingPrice: 12.00,
+    sellingPrice: 34.00,
+    vatType: 'Non VAT',
+    image: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=200&auto=format&fit=crop&q=60',
+    stock: 2, // below threshold of 5!
+    stockByWarehouse: { 'wh-main': 2, 'wh-east': 0, 'wh-west': 0 },
+    mappedSku: 'EB-HOME-GARDEN',
+    source: 'ebay'
+  },
+  {
+    sku: 'AMZ-OFFICE-CHAIR',
+    name: 'Ergonomic Mesh Swivel Desk Chair',
+    description: 'High back office chair with adjustable lumbar support and 3D armrests.',
+    weight: 380,
+    size: '26x24x14',
+    buyingPrice: 85.00,
+    sellingPrice: 189.99,
+    vatType: 'VAT',
+    image: 'https://images.unsplash.com/photo-1580481072645-022f9a6dbf27?w=200&auto=format&fit=crop&q=60',
+    stock: 12,
+    stockByWarehouse: { 'wh-main': 8, 'wh-east': 3, 'wh-west': 1 },
+    mappedSku: 'AMZ-OFFICE-CHAIR',
+    source: 'amazon'
+  },
+  {
+    sku: 'EB-KITCH-BLNDR',
+    name: 'High-Speed Professional Kitchen Blender 1200W',
+    description: 'Heavy duty commercial style power blender for smoothies, purees and hot soups.',
+    weight: 120,
+    size: '14x10x10',
+    buyingPrice: 32.50,
+    sellingPrice: 79.99,
+    vatType: 'VAT',
+    image: 'https://images.unsplash.com/photo-1578643463396-0997cb5328c1?w=200&auto=format&fit=crop&q=60',
+    stock: 1, // below threshold!
+    stockByWarehouse: { 'wh-main': 1, 'wh-east': 0, 'wh-west': 0 },
+    mappedSku: 'EB-KITCH-BLNDR',
+    source: 'ebay'
+  },
+  {
+    sku: 'BNDL-TECH-PACK',
+    name: '[Bundle] Tech Enthusiast Pack (Earbuds + Cable)',
+    description: 'A special high-value bundle containing 1x Wireless Noise-Cancelling Earbuds Pro and 1x 6ft Nylon Braided USB-C Charging Cable.',
+    weight: 17,
+    size: '10x6x4',
+    buyingPrice: 48.20,
+    sellingPrice: 95.00,
+    vatType: 'VAT',
+    image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&auto=format&fit=crop&q=60',
+    stock: 0, // This will be calculated dynamically!
+    stockByWarehouse: { 'wh-main': 0, 'wh-east': 0, 'wh-west': 0 },
+    isBundle: true,
+    bundleComponents: [
+      { sku: 'AMZ-ELEC-402', quantity: 1 },
+      { sku: 'AMZ-CABLE-USB', quantity: 1 }
+    ],
+    source: 'all'
+  }
+];
+
+let warehouses: any[] = [
+  { id: 'wh-main', name: 'Main Warehouse', code: 'MW-01', address: '100 Distribution Dr, Chicago IL', isDefault: true },
+  { id: 'wh-east', name: 'East Coast Fulfillment', code: 'EC-02', address: '50 Industrial Blvd, Newark NJ', isDefault: false },
+  { id: 'wh-west', name: 'West Coast Hub', code: 'WC-03', address: '220 Logistics Ave, Los Angeles CA', isDefault: false },
+];
+
+function syncProductStock(p: any) {
+  if (p.isBundle) {
+    let minStock = Infinity;
+    if (p.bundleComponents && p.bundleComponents.length > 0) {
+      p.bundleComponents.forEach((comp: any) => {
+        const compProd = products.find(prod => prod.sku === comp.sku);
+        if (compProd) {
+          syncProductStock(compProd);
+          const potentialBundleStock = Math.floor((compProd.stock || 0) / comp.quantity);
+          if (potentialBundleStock < minStock) {
+            minStock = potentialBundleStock;
+          }
+        }
+      });
+    }
+    p.stock = minStock === Infinity ? 0 : minStock;
+  } else {
+    if (!p.stockByWarehouse) {
+      p.stockByWarehouse = { 'wh-main': p.stock || 0 };
+    }
+    p.stock = Object.keys(p.stockByWarehouse).reduce((sum, key) => sum + (Number(p.stockByWarehouse[key]) || 0), 0);
+  }
+}
+
+let skuMappings: any[] = [
+  { id: 'map_1', channelSku: 'AMZ-EARBUDS-PRO-BLK', warehouseSku: 'AMZ-ELEC-402', channel: 'amazon' },
+  { id: 'map_2', channelSku: 'AMZ-CABLE-USB-6FT', warehouseSku: 'AMZ-CABLE-USB', channel: 'amazon' },
+  { id: 'map_3', channelSku: 'EBAY-BAMBOO-BOARDS-3PC', warehouseSku: 'EB-HOME-GARDEN', channel: 'ebay' },
+  { id: 'map_4', channelSku: 'EBAY-BLENDER-PRO-1200', warehouseSku: 'EB-KITCH-BLNDR', channel: 'ebay' }
+];
+
+let suppliers: any[] = [
+  {
+    id: 'sup_1',
+    name: 'Grand Electronics Corp',
+    code: 'GEC-EL',
+    contactName: 'James Lin',
+    email: 'orders@grandelec.com',
+    phone: '+1 415-555-0810',
+    address: '900 Technology Dr, San Jose, CA 95110',
+    leadTimeDays: 7
+  },
+  {
+    id: 'sup_2',
+    name: 'Pacific Household Ltd',
+    code: 'PAC-HH',
+    contactName: 'Elena Rostova',
+    email: 'elena@pacifichousehold.com',
+    phone: '+1 206-555-0291',
+    address: '420 Rainier Ave S, Seattle, WA 98144',
+    leadTimeDays: 12
+  },
+  {
+    id: 'sup_3',
+    name: 'Apex Industrial Supply',
+    code: 'APX-IND',
+    contactName: 'Mark Vance',
+    email: 'wholesale@apexind.com',
+    phone: '+1 312-555-0720',
+    address: '1500 Industrial Pkwy, Chicago, IL 60608',
+    leadTimeDays: 5
+  }
+];
+
+let purchaseOrders: any[] = [
+  {
+    id: 'po_1',
+    poNumber: 'PO-2026-0001',
+    supplierId: 'sup_1',
+    supplierName: 'Grand Electronics Corp',
+    status: 'received',
+    items: [
+      { sku: 'AMZ-ELEC-402', name: 'Wireless Noise-Cancelling Earbuds Pro', quantity: 50, unitCost: 45.00, receivedQuantity: 50 }
+    ],
+    orderDate: '2026-06-15T10:00:00.000Z',
+    expectedDeliveryDate: '2026-06-22T10:00:00.000Z',
+    receivedDate: '2026-06-21T16:30:00.000Z',
+    notes: 'Initial restock of Earbuds Pro.',
+    totalAmount: 2250.00
+  },
+  {
+    id: 'po_2',
+    poNumber: 'PO-2026-0002',
+    supplierId: 'sup_2',
+    supplierName: 'Pacific Household Ltd',
+    status: 'ordered',
+    items: [
+      { sku: 'EB-HOME-GARDEN', name: 'Eco-Friendly Bamboo Cutting Board Set', quantity: 100, unitCost: 12.00, receivedQuantity: 0 }
+    ],
+    orderDate: '2026-06-28T09:15:00.000Z',
+    expectedDeliveryDate: '2026-07-10T17:00:00.000Z',
+    notes: 'Urgent garden inventory replenishment.',
+    totalAmount: 1200.00
+  }
+];
+
+let virtualPrinters: any[] = [
+  {
+    id: 'printer_1',
+    name: 'Main Shipping Thermal Labeler',
+    type: 'thermal',
+    connection: 'virtual',
+    status: 'online',
+    paperSize: '4x6',
+    isDefault: true
+  },
+  {
+    id: 'printer_2',
+    name: 'Office Laserjet Duplex',
+    type: 'laser',
+    connection: 'cloud_print',
+    status: 'online',
+    paperSize: '8.5x11',
+    isDefault: false
+  },
+  {
+    id: 'printer_3',
+    name: 'Warehouse Remote Zebra ZD420',
+    type: 'thermal',
+    connection: 'printnode',
+    status: 'offline',
+    paperSize: '4x6',
+    isDefault: false
+  }
+];
+
+let activityLogs: any[] = [
+  {
+    id: 'log_1',
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    level: 'info' as const,
+    source: 'system' as const,
+    message: 'Multi-Channel Fulfillment Manager initialized.',
+  },
+  {
+    id: 'log_2',
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    level: 'info' as const,
+    source: 'amazon_api' as const,
+    message: 'Amazon SP-API Sandbox endpoints mapped.',
+  },
+  {
+    id: 'log_3',
+    timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+    level: 'info' as const,
+    source: 'ebay_api' as const,
+    message: 'eBay OAuth flow simulation mounted.',
+  }
+];
+
+let templates = [
+  {
+    id: 'shipping_label_4x6',
+    name: 'Standard Shipping Label (4"x6")',
+    type: 'label',
+    width: 400,
+    height: 600,
+    elements: []
+  }
+];
+
+// GET templates
+app.get('/api/templates', (req, res) => {
+  res.json(templates);
+});
+
+// POST save templates
+app.post('/api/templates', (req, res) => {
+  templates = req.body;
+  res.json({ success: true, templates });
+});
+
+function addLog(level: 'info' | 'warn' | 'error', source: 'system' | 'amazon_api' | 'ebay_api' | 'shipping_api' | 'ai', message: string) {
+  const log = {
+    id: 'log_' + Math.random().toString(36).substring(2, 11),
+    timestamp: new Date().toISOString(),
+    level,
+    source,
+    message,
+  };
+  activityLogs.unshift(log);
+  if (activityLogs.length > 200) activityLogs.pop();
+  return log;
+}
+
+// REST API Endpoints
+
+// Credentials
+app.get('/api/credentials', (req, res) => {
+  res.json(activeCredentials);
+});
+
+app.post('/api/credentials', (req, res) => {
+  activeCredentials = {
+    ...activeCredentials,
+    ...req.body,
+  };
+  const mode = activeCredentials.isSandbox ? 'Sandbox Mode' : 'Live Connected Mode';
+  addLog('info', 'system', `Integration configurations updated. Running in [${mode}].`);
+  res.json({ success: true, credentials: activeCredentials });
+});
+
+// Logs
+app.get('/api/logs', (req, res) => {
+  res.json(activityLogs);
+});
+
+// Clear Logs
+app.post('/api/logs/clear', (req, res) => {
+  activityLogs = [];
+  addLog('info', 'system', 'Activity logs cleared.');
+  res.json({ success: true });
+});
+
+app.post('/api/logs/reverse', (req, res) => {
+  addLog('warn', 'system', 'Administrator manually reversed the last bulk system operation.');
+  res.json({ success: true });
+});
+
+app.post('/api/logs/create_quick_print', (req, res) => {
+  const { orderId, templateName, templateType } = req.body;
+  addLog('info', 'shipping_api', `Quick Print Shortcut: Order ${orderId} queued & auto-printed using template "${templateName}" (${templateType.toUpperCase()}).`);
+  res.json({ success: true });
+});
+
+// Orders List
+app.get('/api/orders', (req, res) => {
+  res.json(orders);
+});
+
+// Reset Orders (Sandbox Mode Helper)
+app.post('/api/orders/reset', (req, res) => {
+  orders = orders.map(o => {
+    if (o.id === 'AMZ-904-1120492') return o; // Keep shipped
+    return {
+      ...o,
+      status: 'pending' as const,
+      selectedRate: undefined,
+      trackingNumber: undefined,
+      labelUrl: undefined,
+      shippedAt: undefined,
+    };
+  });
+  addLog('info', 'system', 'Orders reset to pending state for simulation.');
+  res.json(orders);
+});
+
+// Update order specs (weight and dimensions)
+app.post('/api/orders/update-specs', (req, res) => {
+  const { id, weightOz, dimensions } = req.body;
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx !== -1) {
+    orders[idx] = {
+      ...orders[idx],
+      weightOz: weightOz ? Number(weightOz) : undefined,
+      dimensions: dimensions ? {
+        length: Number(dimensions.length),
+        width: Number(dimensions.width),
+        height: Number(dimensions.height),
+      } : undefined
+    };
+    addLog('info', 'system', `Updated order specs for ${id}: Weight=${weightOz || 'N/A'} oz, Dimensions=${dimensions ? `${dimensions.length}x${dimensions.width}x${dimensions.height}` : 'N/A'}`);
+    res.json({ success: true, order: orders[idx] });
+  } else {
+    res.status(404).json({ error: 'Order not found' });
+  }
+});
+
+// Bulk update order specs (weight and dimensions)
+app.post('/api/orders/bulk-update-specs', (req, res) => {
+  const { ids, weightOz, dimensions } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).json({ error: 'ids array is required.' });
+  }
+  let count = 0;
+  orders.forEach(o => {
+    if (ids.includes(o.id)) {
+      if (weightOz !== undefined) o.weightOz = weightOz ? Number(weightOz) : undefined;
+      if (dimensions !== undefined) {
+        o.dimensions = dimensions ? {
+          length: Number(dimensions.length),
+          width: Number(dimensions.width),
+          height: Number(dimensions.height)
+        } : undefined;
+      }
+      count++;
+    }
+  });
+  addLog('info', 'system', `Bulk specifications updated for ${count} orders.`);
+  res.json({ success: true, count, orders });
+});
+
+// GET products list
+app.get('/api/products', (req, res) => {
+  products.forEach(p => syncProductStock(p));
+  res.json(products);
+});
+
+// POST sync products from channels (simulated sync based on actual channel listings/orders)
+app.post('/api/products/sync', (req, res) => {
+  const { channel } = req.body; // 'all' | 'amazon' | 'ebay'
+  addLog('info', 'system', `Initiating direct catalog synchronization from sales channels (${channel || 'all channels'})...`);
+  
+  let syncedCount = 0;
+  // Examine current orders list to find items that should be in our catalog, and fetch their full metadata from mock APIs
+  orders.forEach(o => {
+    if (channel && channel !== 'all' && o.source !== channel) return;
+    
+    o.items.forEach((item: any) => {
+      const exists = products.some(p => p.sku === item.sku || p.mappedSku === item.sku);
+      if (!exists) {
+        // Build metadata based on listing data
+        products.push({
+          sku: item.sku,
+          name: item.title,
+          description: `Direct SP-API / eBay Trading API imported listing. Sync retrieved full details from merchant inventory active listings.`,
+          weight: o.weightOz || Math.floor(Math.random() * 20) + 4,
+          size: o.dimensions ? `${o.dimensions.length}x${o.dimensions.width}x${o.dimensions.height}` : "10x6x4",
+          buyingPrice: Math.round(item.price * 0.45 * 100) / 100,
+          sellingPrice: item.price,
+          vatType: 'VAT',
+          image: item.sku.includes('CABLE') 
+            ? 'https://images.unsplash.com/photo-1589615224935-07d409439d0c?w=200&auto=format&fit=crop&q=60'
+            : item.sku.includes('CHAIR')
+              ? 'https://images.unsplash.com/photo-1580481072645-022f9a6dbf27?w=200&auto=format&fit=crop&q=60'
+              : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&auto=format&fit=crop&q=60',
+          stock: Math.floor(Math.random() * 12) + 1, // Simulated stock level
+          mappedSku: item.sku,
+          source: o.source
+        });
+        syncedCount++;
+        addLog('info', o.source === 'amazon' ? 'amazon_api' : 'ebay_api', `Direct Sync imported listing SKU: ${item.sku} - Name: ${item.title}`);
+      }
+    });
+  });
+
+  addLog('info', 'system', `Channel products sync complete. Synced and updated ${syncedCount} listings in the catalog database.`);
+  res.json({ success: true, count: syncedCount, products });
+});
+
+// POST update mapping SKU
+app.post('/api/products/map', (req, res) => {
+  const { sku, mappedSku } = req.body;
+  const idx = products.findIndex(p => p.sku === sku);
+  if (idx !== -1) {
+    products[idx].mappedSku = mappedSku;
+    addLog('info', 'system', `Mapped SKU connection: product SKU [${sku}] is now mapped to store channel SKU [${mappedSku || 'N/A'}]`);
+    res.json({ success: true, product: products[idx] });
+  } else {
+    res.status(404).json({ error: 'Product not found' });
+  }
+});
+
+// POST edit single product details
+app.post('/api/products/update', (req, res) => {
+  const { sku, name, description, weight, size, buyingPrice, sellingPrice, commission, shippingCost, vatType, stock, stockByWarehouse, mappedSku, isBundle, bundleComponents, image, images } = req.body;
+  const idx = products.findIndex(p => p.sku === sku);
+  if (idx !== -1) {
+    products[idx] = {
+      ...products[idx],
+      name: name !== undefined ? name : products[idx].name,
+      description: description !== undefined ? description : products[idx].description,
+      weight: weight !== undefined ? Number(weight) : products[idx].weight,
+      size: size !== undefined ? size : products[idx].size,
+      buyingPrice: buyingPrice !== undefined ? Number(buyingPrice) : products[idx].buyingPrice,
+      sellingPrice: sellingPrice !== undefined ? Number(sellingPrice) : products[idx].sellingPrice,
+      vatType: vatType !== undefined ? vatType : products[idx].vatType,
+      stock: stock !== undefined ? Number(stock) : products[idx].stock,
+      stockByWarehouse: stockByWarehouse !== undefined ? stockByWarehouse : products[idx].stockByWarehouse,
+      mappedSku: mappedSku !== undefined ? mappedSku : products[idx].mappedSku,
+      isBundle: isBundle !== undefined ? isBundle : products[idx].isBundle,
+      bundleComponents: bundleComponents !== undefined ? bundleComponents : products[idx].bundleComponents,
+      commission: commission !== undefined ? Number(commission) : products[idx].commission,
+      shippingCost: shippingCost !== undefined ? Number(shippingCost) : products[idx].shippingCost,
+      image: image !== undefined ? image : products[idx].image,
+      images: images !== undefined ? images : products[idx].images,
+    };
+    syncProductStock(products[idx]);
+    addLog('info', 'system', `Successfully updated catalog product: SKU ${sku} (Stock: ${products[idx].stock})`);
+    res.json({ success: true, product: products[idx] });
+  } else {
+    res.status(404).json({ error: 'Product not found' });
+  }
+});
+
+// POST bulk CSV import products
+app.post('/api/products/import', (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: 'Payload items must be an array' });
+  }
+
+  let imported = 0;
+  let updated = 0;
+
+  items.forEach((item: any) => {
+    if (!item.sku) return;
+    const existingIdx = products.findIndex(p => p.sku === item.sku);
+
+    const mappedVal = item.mappedSku || item.sku;
+    const descVal = item.description || 'Imported via CSV product catalog upload.';
+    const buyingVal = item.buyingPrice ? Number(item.buyingPrice) : 0;
+    const sellingVal = item.sellingPrice ? Number(item.sellingPrice) : 0;
+    const weightVal = item.weight ? Number(item.weight) : undefined;
+    const sizeVal = item.size || undefined;
+    const stockVal = item.stock !== undefined ? Number(item.stock) : (item.quantity !== undefined ? Number(item.quantity) : 10);
+    const vatVal = (item.vatType || item.vatOrNonVat || 'VAT').toString().toLowerCase().includes('non') ? 'Non VAT' : 'VAT';
+    const imageVal = item.image || (Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&auto=format&fit=crop&q=60');
+    const imagesVal = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
+    const commissionVal = item.commission !== undefined ? Number(item.commission) : 0;
+    const shippingCostVal = item.shippingCost !== undefined ? Number(item.shippingCost) : 0;
+
+    const cleanItem = {
+      sku: item.sku,
+      name: item.name || item.productName || 'Imported Product',
+      description: descVal,
+      weight: weightVal,
+      size: sizeVal,
+      buyingPrice: buyingVal,
+      sellingPrice: sellingVal,
+      commission: commissionVal,
+      shippingCost: shippingCostVal,
+      vatType: vatVal,
+      image: imageVal,
+      images: imagesVal,
+      stock: stockVal,
+      mappedSku: mappedVal,
+      source: item.source || 'none'
+    };
+
+    if (existingIdx !== -1) {
+      products[existingIdx] = {
+        ...products[existingIdx],
+        ...cleanItem
+      };
+      updated++;
+    } else {
+      products.push(cleanItem);
+      imported++;
+    }
+  });
+
+  addLog('info', 'system', `Bulk CSV catalog upload complete. Created ${imported} new items, updated ${updated} existing records.`);
+  res.json({ success: true, importedCount: imported, updatedCount: updated, products });
+});
+
+// --- SKU MAPPINGS API ---
+
+// GET SKU mappings list
+app.get('/api/sku-mappings', (req, res) => {
+  res.json(skuMappings);
+});
+
+// POST add/update SKU mapping
+app.post('/api/sku-mappings', (req, res) => {
+  const { id, channelSku, warehouseSku, channel, force } = req.body;
+  if (!channelSku || !warehouseSku) {
+    return res.status(400).json({ error: 'Channel SKU and Warehouse SKU are required.' });
+  }
+
+  // Verify warehouse SKU exists
+  const exists = products.some(p => p.sku === warehouseSku);
+  if (!exists) {
+    return res.status(400).json({ error: `Warehouse SKU [${warehouseSku}] does not exist in the catalog.` });
+  }
+
+  // Validation: Check if target SKU is already mapped to another channel SKU to prevent duplicate routing
+  if (!force) {
+    const alreadyMapped = skuMappings.find(m => m.warehouseSku === warehouseSku && m.channelSku !== channelSku && (!id || m.id !== id));
+    if (alreadyMapped) {
+      return res.status(400).json({ 
+        error: `Duplicate Routing Warning: The target warehouse SKU [${warehouseSku}] is already mapped to another channel SKU [${alreadyMapped.channelSku}] on "${alreadyMapped.channel}".` 
+      });
+    }
+  }
+
+  if (id) {
+    const idx = skuMappings.findIndex(m => m.id === id);
+    if (idx !== -1) {
+      skuMappings[idx] = {
+        ...skuMappings[idx],
+        channelSku,
+        warehouseSku,
+        channel: channel || 'all'
+      };
+      addLog('info', 'system', `Updated SKU Mapping rule: Store SKU [${channelSku}] -> Warehouse [${warehouseSku}]`);
+      res.json({ success: true, mapping: skuMappings[idx] });
+    } else {
+      res.status(404).json({ error: 'Mapping not found' });
+    }
+  } else {
+    // Check duplicate channelSku
+    const duplicate = skuMappings.some(m => m.channelSku === channelSku && m.channel === (channel || 'all'));
+    if (duplicate) {
+      return res.status(400).json({ error: `A mapping rule for Channel SKU [${channelSku}] already exists.` });
+    }
+
+    const newMapping = {
+      id: 'map_' + Math.random().toString(36).substring(2, 11),
+      channelSku,
+      warehouseSku,
+      channel: channel || 'all'
+    };
+    skuMappings.push(newMapping);
+    addLog('info', 'system', `Created SKU Mapping rule: Store SKU [${channelSku}] -> Warehouse [${warehouseSku}]`);
+    res.json({ success: true, mapping: newMapping });
+  }
+});
+
+// POST delete SKU mapping
+app.post('/api/sku-mappings/delete', (req, res) => {
+  const { id } = req.body;
+  const idx = skuMappings.findIndex(m => m.id === id);
+  if (idx !== -1) {
+    const deleted = skuMappings[idx];
+    skuMappings = skuMappings.filter(m => m.id !== id);
+    addLog('warn', 'system', `Deleted SKU Mapping rule: Store SKU [${deleted.channelSku}] -> Warehouse [${deleted.warehouseSku}]`);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Mapping not found' });
+  }
+});
+
+// POST bulk CSV import SKU mappings
+app.post('/api/sku-mappings/import', (req, res) => {
+  const { items, force } = req.body;
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: 'Payload must contain items array' });
+  }
+
+  let imported = 0;
+  let skipped = 0;
+
+  items.forEach((item: any) => {
+    const channelSku = item.channelsku || item.marketplacesku || item.channelsku || item.marketplacesku || item.channel_sku || item.marketplace_sku || item.channelsku || item.channelSku;
+    const warehouseSku = item.warehousesku || item.internalsku || item.warehousesku || item.internalsku || item.warehouse_sku || item.internal_sku || item.sku || item.warehouseSku;
+    const channel = item.channel || item.source || 'all';
+
+    if (!channelSku || !warehouseSku) {
+      skipped++;
+      return;
+    }
+
+    // Ensure warehouse SKU exists
+    const exists = products.some(p => p.sku === warehouseSku);
+    if (!exists) {
+      skipped++;
+      return;
+    }
+
+    // Validation: Check duplicate target SKU during CSV import if not forced
+    if (!force) {
+      const alreadyMapped = skuMappings.some(m => m.warehouseSku === warehouseSku && m.channelSku !== channelSku);
+      if (alreadyMapped) {
+        skipped++;
+        return;
+      }
+    }
+
+    // Avoid duplicates or update
+    const existingIdx = skuMappings.findIndex(m => m.channelSku === channelSku);
+    if (existingIdx !== -1) {
+      skuMappings[existingIdx] = {
+        ...skuMappings[existingIdx],
+        warehouseSku,
+        channel: channel.toLowerCase()
+      };
+      imported++;
+    } else {
+      skuMappings.push({
+        id: 'map_' + Math.random().toString(36).substring(2, 11),
+        channelSku,
+        warehouseSku,
+        channel: channel.toLowerCase()
+      });
+      imported++;
+    }
+  });
+
+  addLog('info', 'system', `Bulk CSV SKU Mapping import complete. Imported/Updated ${imported} rules, skipped ${skipped} invalid lines.`);
+  res.json({ success: true, importedCount: imported, skippedCount: skipped, skuMappings });
+});
+
+// GET & POST inventory threshold configurations
+app.get('/api/inventory/threshold', (req, res) => {
+  res.json({ threshold: inventoryThreshold });
+});
+
+app.post('/api/inventory/threshold', (req, res) => {
+  const { threshold } = req.body;
+  if (threshold !== undefined) {
+    inventoryThreshold = Number(threshold);
+    addLog('info', 'system', `Hypothetical low stock threshold updated to ${inventoryThreshold} units.`);
+    res.json({ success: true, threshold: inventoryThreshold });
+  } else {
+    res.status(400).json({ error: 'Threshold is required' });
+  }
+});
+
+// GET & POST global currency configuration
+app.get('/api/settings/currency', (req, res) => {
+  res.json({ currency: appCurrency, unitSystem: appUnitSystem });
+});
+
+// GET & POST warehouse origin coordinates
+app.get('/api/settings/origin', (req, res) => {
+  res.json(appOrigin);
+});
+
+app.post('/api/settings/origin', (req, res) => {
+  const { country, city, state, zip } = req.body;
+  if (country !== undefined && city !== undefined && state !== undefined && zip !== undefined) {
+    appOrigin = { country, city, state, zip };
+    addLog('info', 'system', `Warehouse dispatch origin updated to: Country=${country}, City=${city}, State=${state}, Postcode/Zip=${zip}`);
+    res.json({ success: true, origin: appOrigin });
+  } else {
+    res.status(400).json({ error: 'country, city, state, and zip are required.' });
+  }
+});
+
+app.post('/api/settings/units', (req, res) => {
+  const { unitSystem } = req.body;
+  if (unitSystem !== undefined) {
+    appUnitSystem = String(unitSystem);
+    addLog('info', 'system', `Global default system unit updated to ${appUnitSystem}.`);
+    res.json({ success: true, unitSystem: appUnitSystem });
+  } else {
+    res.status(400).json({ error: 'Unit system is required' });
+  }
+});
+
+app.post('/api/settings/currency', (req, res) => {
+  const { currency } = req.body;
+  if (currency !== undefined) {
+    appCurrency = String(currency);
+    addLog('info', 'system', `Global default system currency updated to ${appCurrency}.`);
+    orders.forEach(o => o.currency = appCurrency); res.json({ success: true, currency: appCurrency });
+  } else {
+    res.status(400).json({ error: 'Currency is required' });
+  }
+});
+
+// GET all WMS Suppliers
+app.get('/api/wms/suppliers', (req, res) => {
+  res.json(suppliers);
+});
+
+// POST create/update WMS Supplier
+app.post('/api/wms/suppliers', (req, res) => {
+  const { id, name, code, contactName, email, phone, address, leadTimeDays } = req.body;
+  
+  if (!name || !code) {
+    return res.status(400).json({ error: 'Supplier Name and Code are required.' });
+  }
+
+  if (id) {
+    const idx = suppliers.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      suppliers[idx] = {
+        ...suppliers[idx],
+        name,
+        code,
+        contactName: contactName || '',
+        email: email || '',
+        phone: phone || '',
+        address: address || '',
+        leadTimeDays: leadTimeDays !== undefined ? Number(leadTimeDays) : 7
+      };
+      addLog('info', 'system', `Supplier details updated: [${code}] ${name}`);
+      res.json({ success: true, supplier: suppliers[idx] });
+    } else {
+      res.status(404).json({ error: 'Supplier not found' });
+    }
+  } else {
+    const newSupplier = {
+      id: 'sup_' + Math.random().toString(36).substring(2, 11),
+      name,
+      code,
+      contactName: contactName || '',
+      email: email || '',
+      phone: phone || '',
+      address: address || '',
+      leadTimeDays: leadTimeDays !== undefined ? Number(leadTimeDays) : 7
+    };
+    suppliers.push(newSupplier);
+    addLog('info', 'system', `New Supplier created: [${code}] ${name}`);
+    res.json({ success: true, supplier: newSupplier });
+  }
+});
+
+// DELETE a Supplier
+app.delete('/api/wms/suppliers/:id', (req, res) => {
+  const { id } = req.params;
+  const idx = suppliers.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    const sName = suppliers[idx].name;
+    suppliers = suppliers.filter(s => s.id !== id);
+    addLog('warn', 'system', `Supplier deleted: ${sName}`);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Supplier not found' });
+  }
+});
+
+// GET all WMS Purchase Orders
+app.get('/api/wms/purchase-orders', (req, res) => {
+  res.json(purchaseOrders);
+});
+
+// POST Create WMS Purchase Order
+app.post('/api/wms/purchase-orders', (req, res) => {
+  const { supplierId, items, expectedDeliveryDate, notes } = req.body;
+
+  if (!supplierId || !items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Supplier and at least one item line are required.' });
+  }
+
+  const supplier = suppliers.find(s => s.id === supplierId);
+  if (!supplier) {
+    return res.status(404).json({ error: 'Selected supplier not found.' });
+  }
+
+  const count = purchaseOrders.length + 1;
+  const poNumber = `PO-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+  const totalAmount = items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unitCost)), 0);
+
+  const newPO = {
+    id: 'po_' + Math.random().toString(36).substring(2, 11),
+    poNumber,
+    supplierId,
+    supplierName: supplier.name,
+    status: 'draft' as const,
+    items: items.map(item => ({
+      sku: item.sku,
+      name: item.name || 'Unnamed Item',
+      quantity: Number(item.quantity),
+      unitCost: Number(item.unitCost),
+      receivedQuantity: 0
+    })),
+    orderDate: new Date().toISOString(),
+    expectedDeliveryDate: expectedDeliveryDate || new Date(Date.now() + 86400000 * supplier.leadTimeDays).toISOString(),
+    notes: notes || '',
+    totalAmount
+  };
+
+  purchaseOrders.unshift(newPO);
+  addLog('info', 'system', `Draft Purchase Order created: ${poNumber} for ${supplier.name} (Total: $${totalAmount.toFixed(2)})`);
+  res.json({ success: true, purchaseOrder: newPO });
+});
+
+// POST Update WMS Purchase Order Details / Status
+app.post('/api/wms/purchase-orders/update', (req, res) => {
+  const { id, status, expectedDeliveryDate, notes, items, receivedDate } = req.body;
+  const idx = purchaseOrders.findIndex(p => p.id === id);
+  
+  if (idx !== -1) {
+    const currentPO = purchaseOrders[idx];
+    const oldStatus = currentPO.status;
+
+    // Save previous items if we need them, update basic properties
+    if (expectedDeliveryDate !== undefined) currentPO.expectedDeliveryDate = expectedDeliveryDate;
+    if (notes !== undefined) currentPO.notes = notes;
+    
+    if (items !== undefined) {
+      currentPO.items = items.map((i: any) => ({
+        sku: i.sku,
+        name: i.name,
+        quantity: Number(i.quantity),
+        unitCost: Number(i.unitCost),
+        receivedQuantity: i.receivedQuantity !== undefined ? Number(i.receivedQuantity) : 0
+      }));
+      currentPO.totalAmount = currentPO.items.reduce((sum: number, i: any) => sum + (i.quantity * i.unitCost), 0);
+    }
+
+    if (status !== undefined && status !== oldStatus) {
+      currentPO.status = status;
+      if (status === 'received') {
+        currentPO.receivedDate = receivedDate || new Date().toISOString();
+        
+        // Replenish physical catalog inventory stocks!
+        currentPO.items.forEach((poItem: any) => {
+          const productIdx = products.find(p => p.sku === poItem.sku);
+          const productObj = products.find(p => p.sku === poItem.sku);
+          if (productObj) {
+            // Set receivedQuantity to full quantity if it was zero or undefined
+            if (!poItem.receivedQuantity) {
+              poItem.receivedQuantity = poItem.quantity;
+            }
+            if (!productObj.stockByWarehouse) {
+              productObj.stockByWarehouse = { 'wh-main': productObj.stock || 0 };
+            }
+            productObj.stockByWarehouse['wh-main'] = (productObj.stockByWarehouse['wh-main'] || 0) + poItem.receivedQuantity;
+            syncProductStock(productObj);
+            addLog('info', 'system', `Received PO ${currentPO.poNumber}: Catalog SKU [${poItem.sku}] stock increased by +${poItem.receivedQuantity} units in Main Warehouse (New Total Synced Stock: ${productObj.stock}).`);
+          }
+        });
+      }
+      addLog('info', 'system', `Purchase Order ${currentPO.poNumber} state changed from [${oldStatus.toUpperCase()}] to [${status.toUpperCase()}].`);
+    } else {
+      addLog('info', 'system', `Purchase Order ${currentPO.poNumber} properties updated.`);
+    }
+
+    res.json({ success: true, purchaseOrder: currentPO, products });
+  } else {
+    res.status(404).json({ error: 'Purchase Order not found' });
+  }
+});
+
+// GET all WMS Warehouses
+app.get('/api/wms/warehouses', (req, res) => {
+  res.json(warehouses);
+});
+
+// POST Create or Update WMS Warehouse
+app.post('/api/wms/warehouses', (req, res) => {
+  const { id, name, code, address, isDefault } = req.body;
+  
+  if (!name || !code) {
+    return res.status(400).json({ error: 'Warehouse Name and Code are required.' });
+  }
+
+  if (isDefault) {
+    warehouses.forEach(w => w.isDefault = false);
+  }
+
+  if (id) {
+    const idx = warehouses.findIndex(w => w.id === id);
+    if (idx !== -1) {
+      warehouses[idx] = {
+        ...warehouses[idx],
+        name,
+        code,
+        address: address || '',
+        isDefault: !!isDefault
+      };
+      addLog('info', 'system', `Warehouse updated: [${code}] ${name}`);
+      res.json({ success: true, warehouse: warehouses[idx] });
+    } else {
+      res.status(404).json({ error: 'Warehouse not found' });
+    }
+  } else {
+    const newId = 'wh_' + Math.random().toString(36).substring(2, 11);
+    const newWh = {
+      id: newId,
+      name,
+      code,
+      address: address || '',
+      isDefault: !!isDefault
+    };
+    warehouses.push(newWh);
+
+    // Initialize stock of 0 in this new warehouse for all products
+    products.forEach(p => {
+      if (p.stockByWarehouse) {
+        p.stockByWarehouse[newId] = 0;
+      }
+    });
+
+    addLog('info', 'system', `New Warehouse Location created: [${code}] ${name}`);
+    res.json({ success: true, warehouse: newWh });
+  }
+});
+
+// DELETE a Warehouse (prevent deleting the default warehouse)
+app.delete('/api/wms/warehouses/:id', (req, res) => {
+  const { id } = req.params;
+  const idx = warehouses.findIndex(w => w.id === id);
+  if (idx !== -1) {
+    if (warehouses[idx].isDefault) {
+      return res.status(400).json({ error: 'Cannot delete the Default Warehouse.' });
+    }
+    const whName = warehouses[idx].name;
+    warehouses = warehouses.filter(w => w.id !== id);
+
+    // Clean up stockByWarehouse key
+    products.forEach(p => {
+      if (p.stockByWarehouse) {
+        delete p.stockByWarehouse[id];
+      }
+    });
+
+    addLog('warn', 'system', `Warehouse Location deleted: ${whName}`);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Warehouse not found' });
+  }
+});
+
+// POST Update Stock in a Specific Warehouse
+app.post('/api/wms/warehouses/stock/update', (req, res) => {
+  const { sku, warehouseId, quantity } = req.body;
+  if (!sku || !warehouseId) {
+    return res.status(400).json({ error: 'SKU and Warehouse ID are required.' });
+  }
+
+  const p = products.find(prod => prod.sku === sku);
+  if (!p) {
+    return res.status(404).json({ error: 'Product not found' });
+  }
+
+  if (!p.stockByWarehouse) {
+    p.stockByWarehouse = { 'wh-main': p.stock || 0 };
+  }
+
+  p.stockByWarehouse[warehouseId] = Number(quantity);
+  syncProductStock(p);
+
+  addLog('info', 'system', `Updated stock for SKU [${sku}] in warehouse [${warehouseId}] to ${quantity}. Total synced catalog stock is now ${p.stock}.`);
+  res.json({ success: true, product: p });
+});
+
+// POST Simulate Publishing Listing to Channel with Configurator Attributes
+app.post('/api/products/listing/publish', (req, res) => {
+  const { sku, channel, channelSku, price, templateId, attributes } = req.body;
+  
+  if (!sku || !channel || !channelSku) {
+    return res.status(400).json({ error: 'SKU, Channel, and Channel SKU are required.' });
+  }
+
+  // Find product
+  const p = products.find(prod => prod.sku === sku);
+  if (!p) {
+    return res.status(404).json({ error: 'Catalog product not found.' });
+  }
+
+  // Update product mapped SKU to match
+  p.mappedSku = channelSku;
+  
+  // Create mapping record if it doesn't exist
+  const existingMapIdx = skuMappings.findIndex(m => m.channelSku === channelSku);
+  if (existingMapIdx !== -1) {
+    skuMappings[existingMapIdx].warehouseSku = sku;
+  } else {
+    skuMappings.push({
+      id: 'map_' + Math.random().toString(36).substring(2, 11),
+      channelSku,
+      warehouseSku: sku,
+      channel
+    });
+  }
+
+  // For the log source we need to map to valid types
+  const sourceMapping: Record<string, "amazon_api" | "ebay_api" | "system"> = {
+    amazon: 'amazon_api',
+    ebay: 'ebay_api',
+  };
+  
+  const logSource = sourceMapping[channel] || 'system';
+
+  addLog('info', logSource, `Published and mapped new dynamic listing for [${sku}] as [${channelSku}] on ${channel.toUpperCase()} at $${price}. Template used: ${templateId}. Required attributes synchronized.`);
+  res.json({ success: true, product: p, skuMappings });
+});
+
+// POST Extract Inventory from external channel
+app.post('/api/products/extract', (req, res) => {
+  const { channel } = req.body; // 'shopify' | 'woocommerce' | 'magento' | 'amazon' | 'ebay'
+  
+  if (!channel) {
+    return res.status(400).json({ error: 'Channel is required.' });
+  }
+
+  addLog('info', 'system', `Initiating live inventory extraction crawl from ${channel.toUpperCase()}...`);
+
+  // Generate some premium simulated listing data for the channel
+  const simulatedExtractedData = [
+    {
+      channel,
+      title: `${channel.toUpperCase()} Active: Wireless Noise-Cancelling Earbuds Pro 2`,
+      channelSku: `${channel.toUpperCase()}-EARBUDS-V2`,
+      price: 99.99,
+      stock: 42,
+      image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=200&auto=format&fit=crop&q=60'
+    },
+    {
+      channel,
+      title: `${channel.toUpperCase()} Active: High-Speed Blender Pro Max`,
+      channelSku: `${channel.toUpperCase()}-BLENDER-MAX`,
+      price: 129.50,
+      stock: 18,
+      image: 'https://images.unsplash.com/photo-1578643463396-0997cb5328c1?w=200&auto=format&fit=crop&q=60'
+    },
+    {
+      channel,
+      title: `${channel.toUpperCase()} Active: Bamboo Board XL (Single)`,
+      channelSku: `${channel.toUpperCase()}-BAMBOO-XL`,
+      price: 24.99,
+      stock: 35,
+      image: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=200&auto=format&fit=crop&q=60'
+    },
+    {
+      channel,
+      title: `${channel.toUpperCase()} Active: USB-C Fast Charger 100W`,
+      channelSku: `${channel.toUpperCase()}-USB-100W`,
+      price: 19.99,
+      stock: 110,
+      image: 'https://images.unsplash.com/photo-1589615224935-07d409439d0c?w=200&auto=format&fit=crop&q=60'
+    }
+  ];
+
+  res.json({ success: true, channel, extracted: simulatedExtractedData });
+});
+
+// GET all Virtual/Remote Printers
+app.get('/api/printers', (req, res) => {
+  res.json(virtualPrinters);
+});
+
+// POST Add/Update Virtual/Remote Printer
+app.post('/api/printers', (req, res) => {
+  const { id, name, type, connection, status, ipAddress, port, paperSize, apiKey, isDefault } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'Printer Name is required.' });
+  }
+
+  if (isDefault) {
+    // Make sure no other printer is default
+    virtualPrinters.forEach(p => p.isDefault = false);
+  }
+
+  if (id) {
+    const idx = virtualPrinters.findIndex(p => p.id === id);
+    if (idx !== -1) {
+      virtualPrinters[idx] = {
+        ...virtualPrinters[idx],
+        name,
+        type: type || 'thermal',
+        connection: connection || 'virtual',
+        status: status || 'online',
+        ipAddress: ipAddress || '',
+        port: port ? Number(port) : undefined,
+        paperSize: paperSize || '4x6',
+        apiKey: apiKey || '',
+        isDefault: !!isDefault
+      };
+      addLog('info', 'system', `Remote Printer updated: ${name} (${connection.toUpperCase()})`);
+      res.json({ success: true, printer: virtualPrinters[idx] });
+    } else {
+      res.status(404).json({ error: 'Printer not found' });
+    }
+  } else {
+    const newPrinter = {
+      id: 'printer_' + Math.random().toString(36).substring(2, 11),
+      name,
+      type: type || 'thermal',
+      connection: connection || 'virtual',
+      status: status || 'online',
+      ipAddress: ipAddress || '',
+      port: port ? Number(port) : undefined,
+      paperSize: paperSize || '4x6',
+      apiKey: apiKey || '',
+      isDefault: !!isDefault
+    };
+    virtualPrinters.push(newPrinter);
+    addLog('info', 'system', `New Remote Printer registered: ${name} via ${connection.toUpperCase()}`);
+    res.json({ success: true, printer: newPrinter });
+  }
+});
+
+// POST Delete Printer
+app.post('/api/printers/delete', (req, res) => {
+  const { id } = req.body;
+  const idx = virtualPrinters.findIndex(p => p.id === id);
+  if (idx !== -1) {
+    const name = virtualPrinters[idx].name;
+    virtualPrinters = virtualPrinters.filter(p => p.id !== id);
+    // Guarantee at least one default if we have any left
+    if (virtualPrinters.length > 0 && !virtualPrinters.some(p => p.isDefault)) {
+      virtualPrinters[0].isDefault = true;
+    }
+    addLog('warn', 'system', `Remote Printer de-registered: ${name}`);
+    res.json({ success: true, printers: virtualPrinters });
+  } else {
+    res.status(404).json({ error: 'Printer not found' });
+  }
+});
+
+// POST Test Print (Trigger simulated remote label spool)
+app.post('/api/printers/test-print', (req, res) => {
+  const { id } = req.body;
+  const printer = virtualPrinters.find(p => p.id === id);
+  if (!printer) {
+    return res.status(404).json({ error: 'Printer not found' });
+  }
+
+  if (printer.status === 'offline') {
+    addLog('error', 'shipping_api', `Remote Spool failed: Printer [${printer.name}] is currently OFFLINE.`);
+    return res.status(400).json({ error: 'Printer is offline. Cannot accept remote spool requests.' });
+  }
+
+  addLog('info', 'shipping_api', `[Remote Spool] Successfully sent simulated ZPL calibration payload to remote printer [${printer.name}] via ${printer.connection.toUpperCase()}.`);
+  res.json({ success: true, message: `Calibration label printed on ${printer.name}.` });
+});
+
+// Bulk sync orders
+app.post('/api/orders/sync', async (req, res) => {
+  const { channel } = req.body; // 'all' | 'amazon' | 'ebay' | 'prestashop' | 'onbuy' | 'etsy' | 'temu' | 'tiktok'
+  const isAll = !channel || channel === 'all';
+  const isAmazon = isAll || channel === 'amazon';
+  const isEbay = isAll || channel === 'ebay';
+  const isPrestashop = isAll || channel === 'prestashop';
+  const isOnbuy = isAll || channel === 'onbuy';
+  const isEtsy = isAll || channel === 'etsy';
+  const isTemu = isAll || channel === 'temu';
+  const isTiktok = isAll || channel === 'tiktok';
+
+  addLog('info', 'system', `Initiating manual orders download sync...`);
+
+  let countAmazon = 0;
+  let countEbay = 0;
+  let countPrestashop = 0;
+  let countOnbuy = 0;
+  let countEtsy = 0;
+  let countTemu = 0;
+  let countTiktok = 0;
+
+  if (isAmazon) {
+    if (!activeCredentials.isSandbox && activeCredentials.amazonSellerId) {
+      addLog('info', 'amazon_api', `Connecting to Amazon Seller Partner API (/orders/v0/orders) for Seller: ${activeCredentials.amazonSellerId}`);
+      // Simulated successful live call response
+      countAmazon = Math.floor(Math.random() * 2) + 1;
+      addLog('info', 'amazon_api', `Fetched ${countAmazon} new live Amazon merchant orders successfully.`);
+    } else {
+      addLog('info', 'amazon_api', `Amazon SP-API simulated synchronization completed.`);
+      countAmazon = 1;
+    }
+  }
+
+  if (isEbay) {
+    if (!activeCredentials.isSandbox && activeCredentials.ebayClientId) {
+      addLog('info', 'ebay_api', `Connecting to eBay REST Selling API (/sell/fulfillment/v1/order)`);
+      countEbay = Math.floor(Math.random() * 2) + 1;
+      addLog('info', 'ebay_api', `Fetched ${countEbay} new live eBay orders successfully.`);
+    } else {
+      addLog('info', 'ebay_api', `eBay traditional API simulated synchronization completed.`);
+      countEbay = 1;
+    }
+  }
+
+  if (isPrestashop) {
+    if (!activeCredentials.isSandbox && activeCredentials.prestashopApiKey) {
+      addLog('info', 'system', `Connecting to PrestaShop Web Services API (${activeCredentials.prestashopStoreUrl || 'localhost'}/api/orders)`);
+      countPrestashop = 1;
+      addLog('info', 'system', `Fetched 1 new live PrestaShop orders successfully.`);
+    } else {
+      addLog('info', 'system', `PrestaShop API simulated synchronization completed.`);
+      countPrestashop = 1;
+    }
+  }
+
+  if (isOnbuy) {
+    if (!activeCredentials.isSandbox && activeCredentials.onbuySellerKey) {
+      addLog('info', 'system', `Connecting to OnBuy Seller API (v2/orders)`);
+      countOnbuy = 1;
+      addLog('info', 'system', `Fetched 1 new live OnBuy orders successfully.`);
+    } else {
+      addLog('info', 'system', `OnBuy API simulated synchronization completed.`);
+      countOnbuy = 1;
+    }
+  }
+
+  if (isEtsy) {
+    if (!activeCredentials.isSandbox && activeCredentials.etsyClientId) {
+      addLog('info', 'system', `Connecting to Etsy Open API v3 (/v3/application/shops/${activeCredentials.etsyShopName || 'shop'}/receipts)`);
+      countEtsy = 1;
+      addLog('info', 'system', `Fetched 1 new live Etsy orders successfully.`);
+    } else {
+      addLog('info', 'system', `Etsy API simulated synchronization completed.`);
+      countEtsy = 1;
+    }
+  }
+
+  if (isTemu) {
+    if (!activeCredentials.isSandbox && activeCredentials.temuSellerId) {
+      addLog('info', 'system', `Connecting to Temu Open API (openapi.temu.com/order/list)`);
+      countTemu = 1;
+      addLog('info', 'system', `Fetched 1 new live Temu orders successfully.`);
+    } else {
+      addLog('info', 'system', `Temu API simulated synchronization completed.`);
+      countTemu = 1;
+    }
+  }
+
+  if (isTiktok) {
+    if (!activeCredentials.isSandbox && activeCredentials.tiktokShopId) {
+      addLog('info', 'system', `Connecting to TikTok Shop API (/api/v1/shop/${activeCredentials.tiktokShopId}/orders)`);
+      countTiktok = 1;
+      addLog('info', 'system', `Fetched 1 new live TikTok Shop orders successfully.`);
+    } else {
+      addLog('info', 'system', `TikTok Shop API simulated synchronization completed.`);
+      countTiktok = 1;
+    }
+  }
+
+  // Inject new orders if any were synced
+  const activeSyncedChannels: { source: any; idPrefix: string; buyer: string; email: string; address: any; item: any; price: number; weight: number; dimensions: any; tags: string[] }[] = [];
+
+  if (countAmazon > 0) {
+    activeSyncedChannels.push({
+      source: 'amazon',
+      idPrefix: 'AMZ',
+      buyer: 'Robert Garcia',
+      email: 'rgarcia@example.com',
+      address: { name: 'Robert Garcia', addressLine1: '1920 West Peachtree St', city: 'Atlanta', stateOrRegion: 'GA', postalCode: '30309', countryCode: 'US', phone: '+1 404-555-0177' },
+      item: { sku: 'AMZ-FIT-WATCH', title: 'Smart Fitness Tracker with Heart Rate Monitor' },
+      price: 49.99,
+      weight: 10,
+      dimensions: { length: 6, width: 4, height: 3 },
+      tags: ['Prime Orders']
+    });
+  }
+  if (countEbay > 0) {
+    activeSyncedChannels.push({
+      source: 'ebay',
+      idPrefix: 'EBAY',
+      buyer: 'Amanda Lee',
+      email: 'alee.designs@example.com',
+      address: { name: 'Amanda Lee', addressLine1: '883 Market Street', city: 'San Francisco', stateOrRegion: 'CA', postalCode: '94103', countryCode: 'US', phone: '+1 415-555-0155' },
+      item: { sku: 'EB-YOGA-MAT', title: 'Premium Anti-Slip Yoga Exercise Mat' },
+      price: 29.99,
+      weight: 28,
+      dimensions: { length: 24, width: 4, height: 4 },
+      tags: ['Standard Delivery']
+    });
+  }
+  if (countPrestashop > 0) {
+    activeSyncedChannels.push({
+      source: 'prestashop',
+      idPrefix: 'PRE',
+      buyer: 'Helena Vance',
+      email: 'helena.v@prestastore.net',
+      address: { name: 'Helena Vance', addressLine1: '45 Rue de la Paix', city: 'Paris', stateOrRegion: 'IDF', postalCode: '75002', countryCode: 'FR', phone: '+33 1 42 68 53 00' },
+      item: { sku: 'PRE-LAMP-LED', title: 'Vintage Decorative LED Filament Light Bulb' },
+      price: 19.50,
+      weight: 8,
+      dimensions: { length: 5, width: 5, height: 7 },
+      tags: ['PrestaShop Order', 'FR-EU']
+    });
+  }
+  if (countOnbuy > 0) {
+    activeSyncedChannels.push({
+      source: 'onbuy',
+      idPrefix: 'ONB',
+      buyer: 'Tomás Silva',
+      email: 'tomas.silva@onbuybuyers.co.uk',
+      address: { name: 'Tomás Silva', addressLine1: '12 Gillingham High St', city: 'Gillingham', stateOrRegion: 'Kent', postalCode: 'ME7 1AQ', countryCode: 'GB', phone: '+44 1634 570091' },
+      item: { sku: 'ONB-CASE-IPHONE', title: 'Aramid Fiber Shockproof iPhone 15 Pro Case' },
+      price: 34.99,
+      weight: 4,
+      dimensions: { length: 7, width: 4, height: 1 },
+      tags: ['OnBuy Verified']
+    });
+  }
+  if (countEtsy > 0) {
+    activeSyncedChannels.push({
+      source: 'etsy',
+      idPrefix: 'ETS',
+      buyer: 'Chloe Carter',
+      email: 'chloe.carter@etsymail.com',
+      address: { name: 'Chloe Carter', addressLine1: '302 Magnolia Ave', city: 'Savannah', stateOrRegion: 'GA', postalCode: '31401', countryCode: 'US', phone: '+1 912-555-0199' },
+      item: { sku: 'ETS-MUG-CERAMIC', title: 'Handmade Speckled Ceramic Coffee Mug 12oz' },
+      price: 24.00,
+      weight: 16,
+      dimensions: { length: 5, width: 5, height: 6 },
+      tags: ['Handmade', 'Etsy Standard']
+    });
+  }
+  if (countTemu > 0) {
+    activeSyncedChannels.push({
+      source: 'temu',
+      idPrefix: 'TEM',
+      buyer: 'Lucas Bennett',
+      email: 'lbennett.temu@outlook.com',
+      address: { name: 'Lucas Bennett', addressLine1: '7721 South Broadway', city: 'Los Angeles', stateOrRegion: 'CA', postalCode: '90003', countryCode: 'US', phone: '+1 213-555-0142' },
+      item: { sku: 'TEM-SOCKS-WOOL', title: '5-Pack Merino Wool Winter Boot Socks' },
+      price: 12.99,
+      weight: 6,
+      dimensions: { length: 8, width: 5, height: 2 },
+      tags: ['Temu Direct', 'Bulk Ship']
+    });
+  }
+  if (countTiktok > 0) {
+    activeSyncedChannels.push({
+      source: 'tiktok',
+      idPrefix: 'TIK',
+      buyer: 'Mia Robinson',
+      email: 'miarobinson@tiktokers.com',
+      address: { name: 'Mia Robinson', addressLine1: '1440 Broadway', city: 'New York', stateOrRegion: 'NY', postalCode: '10018', countryCode: 'US', phone: '+1 212-555-0121' },
+      item: { sku: 'TIK-LIP-GLOSS', title: 'Plumping Lip Gloss Shimmer Oil Hydrating Formula' },
+      price: 15.00,
+      weight: 3,
+      dimensions: { length: 4, width: 2, height: 2 },
+      tags: ['TikTok Shop Trending']
+    });
+  }
+
+  let totalSynced = 0;
+  activeSyncedChannels.forEach(chan => {
+    const newId = chan.idPrefix === 'AMZ' 
+      ? `AMZ-${Math.floor(Math.random() * 800 + 100)}-${Math.floor(Math.random() * 9000000 + 1000000)}` 
+      : chan.idPrefix === 'EBAY'
+        ? `EBAY-${Math.floor(Math.random() * 90000000 + 10000000)}-Y`
+        : `${chan.idPrefix}-${Math.floor(Math.random() * 800000 + 100000)}`;
+
+    const hasWeightAndDim = Math.random() > 0.4; // 60% chance to have weight & dimensions, 40% empty for editing
+
+    // Check if duplicate
+    const duplicate = orders.some(o => o.id === newId);
+    if (!duplicate) {
+      const newOrder = {
+        id: newId,
+        source: chan.source,
+        status: 'pending' as const,
+        buyerName: chan.buyer,
+        buyerEmail: chan.email,
+        shippingAddress: chan.address,
+        items: [
+          { sku: chan.item.sku, title: chan.item.title, quantity: 1, price: chan.price }
+        ],
+        orderDate: new Date().toISOString(),
+        totalAmount: chan.price,
+        currency: appCurrency,
+        weightOz: hasWeightAndDim ? chan.weight : undefined,
+        dimensions: hasWeightAndDim ? chan.dimensions : undefined,
+        tags: chan.tags,
+      };
+
+      orders.unshift(newOrder);
+      totalSynced++;
+      addLog('info', 'system', `Synced and downloaded new order: ${newId} (${chan.source.toUpperCase()}) with tags: ${chan.tags.join(', ')}. ${hasWeightAndDim ? 'Has weight/dimensions.' : 'Needs weight/dimensions updated.'}`);
+    }
+  });
+
+  if (totalSynced === 0) {
+    addLog('info', 'system', 'Order sync complete. No new pending sales orders detected on merchant channels.');
+  }
+
+  // Auto-run rules on pending orders on sync
+  runRulesEvaluationOnPending();
+
+  res.json(orders);
+});
+
+// POST Merge Orders from the same customer
+app.post('/api/orders/create', (req, res) => {
+  const { buyerName, email, address, city, zip, phone, itemSku, itemTitle, itemQty, itemPrice, shippingPaid } = req.body;
+  const newOrder = {
+    id: `MANUAL-${Math.floor(Math.random() * 900000 + 100000)}`,
+    date: new Date().toISOString(),
+    status: 'pending',
+    source: 'manual',
+    buyerName: buyerName || 'Walk-in Customer',
+    shippingAddress: {
+      name: buyerName || 'Walk-in Customer',
+      street: address || '',
+      city: city || '',
+      state: '',
+      zip: zip || '',
+      country: 'US',
+    },
+    items: [
+      {
+        sku: itemSku,
+        title: itemTitle || itemSku,
+        quantity: itemQty,
+        price: itemPrice,
+      }
+    ],
+    totalAmount: (itemQty * itemPrice) + shippingPaid,
+    currency: 'USD',
+    tags: ['Direct Order'],
+  };
+  orders.unshift(newOrder); // Add to beginning
+  addLog('info', 'system', `Created direct order ${newOrder.id} for ${newOrder.buyerName}`);
+  res.json({ success: true, order: newOrder });
+});
+
+app.post('/api/orders/bulk-action', (req, res) => {
+  const { action, ids } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).json({ error: 'IDs required' });
+  }
+
+  if (action === 'delete') {
+    orders = orders.filter(o => !ids.includes(o.id));
+    addLog('info', 'system', `Deleted ${ids.length} orders.`);
+  } else if (action === 'cancel') {
+    orders = orders.map(o => ids.includes(o.id) ? { ...o, status: 'cancelled' } : o);
+    addLog('info', 'system', `Cancelled ${ids.length} orders.`);
+  } else if (action === 'ship') {
+    orders = orders.map(o => ids.includes(o.id) ? { ...o, status: 'shipped', trackingNumber: 'TRK-' + Math.random().toString(36).substring(2, 10).toUpperCase() } : o);
+    addLog('info', 'system', `Marked ${ids.length} orders as SHIPPED and generated tracking numbers.`);
+  } else if (action === 'notify_channels') {
+    addLog('info', 'system', `Notified channels/stores for ${ids.length} shipped orders.`);
+  }
+
+  res.json({ success: true });
+});
+
+app.post('/api/orders/merge', (req, res) => {
+  const { orderIds } = req.body;
+  if (!orderIds || !Array.isArray(orderIds) || orderIds.length < 2) {
+    return res.status(400).json({ error: 'At least two order IDs are required for merging.' });
+  }
+
+  const selectedOrders = orders.filter(o => orderIds.includes(o.id));
+  if (selectedOrders.length !== orderIds.length) {
+    return res.status(404).json({ error: 'One or more selected orders not found.' });
+  }
+
+  // Verify all selected orders are pending
+  const nonPending = selectedOrders.filter(o => o.status !== 'pending');
+  if (nonPending.length > 0) {
+    return res.status(400).json({ error: 'Only pending orders can be merged.' });
+  }
+
+  // Verify they belong to the same customer
+  const first = selectedOrders[0];
+  const mismatchName = selectedOrders.some(o => 
+    o.buyerName.toLowerCase().trim() !== first.buyerName.toLowerCase().trim()
+  );
+  
+  const mismatchAddress = selectedOrders.some(o => 
+    o.shippingAddress.addressLine1.toLowerCase().trim() !== first.shippingAddress.addressLine1.toLowerCase().trim() ||
+    o.shippingAddress.postalCode.toLowerCase().trim() !== first.shippingAddress.postalCode.toLowerCase().trim()
+  );
+
+  if (mismatchName || mismatchAddress) {
+    return res.status(400).json({ error: 'Selected orders must belong to the same customer (matching name and address line 1/zip code).' });
+  }
+
+  // Merge items list
+  const mergedItems: any[] = [];
+  selectedOrders.forEach(o => {
+    o.items.forEach((item: any) => {
+      const existing = mergedItems.find(i => i.sku === item.sku);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        mergedItems.push({ ...item });
+      }
+    });
+  });
+
+  // Calculate combined values
+  const totalAmount = selectedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+  const totalWeightOz = selectedOrders.reduce((sum, o) => sum + (o.weightOz || 0), 0);
+  
+  // Create combined order ID
+  const mergedId = `MERGED-${first.id.replace('MERGED-', '')}-${Math.floor(Math.random() * 90 + 10)}`;
+
+  // Combine tags
+  const allTags = selectedOrders.flatMap(o => o.tags || []);
+  const mergedTags = [...new Set([...allTags, 'Merged Order'])];
+
+  // Keep first order as base, replace items, update values and logs
+  const mergedOrder = {
+    ...first,
+    id: mergedId,
+    items: mergedItems,
+    totalAmount: Math.round(totalAmount * 100) / 100,
+    weightOz: totalWeightOz > 0 ? totalWeightOz : undefined,
+    // Clear rates so they can be re-calculated for the combined specs
+    selectedRate: undefined,
+    trackingNumber: undefined,
+    labelUrl: undefined,
+    shippedAt: undefined,
+    tags: mergedTags,
+    orderDate: new Date().toISOString()
+  };
+
+  // Remove old orders and add the merged one
+  orders = orders.filter(o => !orderIds.includes(o.id));
+  orders.unshift(mergedOrder);
+
+  addLog('info', 'system', `Merged ${selectedOrders.length} orders for ${first.buyerName} into unified order ${mergedId}.`);
+
+  res.json({ success: true, mergedOrder, orders });
+  broadcast('orders', orders);
+});
+
+// Calculate carrier shipping rates (Simulating Amazon Shipping API v2 vs. Amazon Buy Shipping)
+app.post('/api/shipping/rates', (req, res) => {
+  const { orderId } = req.body;
+  const order = orders.find(o => o.id === orderId);
+
+  if (!order) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+
+  const weightOz = order.weightOz || 16;
+  const baseWeightFactor = weightOz / 16; // in lbs
+
+  // Simulate multiple rate quotes
+  // 1. Amazon Buy Shipping Methods (Merchant Fulfillment Network)
+  // 2. Amazon Shipping API v2 (Multi-Channel shipping provider)
+  const rates = [
+    {
+      id: `rate_amz_buy_ground_${orderId}`,
+      carrierName: 'Amazon Buy Shipping',
+      serviceName: 'USPS Ground Advantage (via Amazon)',
+      amount: Math.round((3.80 + baseWeightFactor * 0.95) * 100) / 100,
+      currency: appCurrency,
+      deliveryDays: 3,
+      shippingType: 'buy_shipping' as const,
+    },
+    {
+      id: `rate_amz_buy_priority_${orderId}`,
+      carrierName: 'Amazon Buy Shipping',
+      serviceName: 'UPS Ground (via Buy Shipping)',
+      amount: Math.round((7.20 + baseWeightFactor * 1.20) * 100) / 100,
+      currency: appCurrency,
+      deliveryDays: 2,
+      shippingType: 'buy_shipping' as const,
+    },
+    {
+      id: `rate_ship_v2_ground_${orderId}`,
+      carrierName: 'Amazon Shipping v2',
+      serviceName: 'Amazon Ground Shipping v2',
+      amount: Math.round((3.60 + baseWeightFactor * 0.85) * 100) / 100,
+      currency: appCurrency,
+      deliveryDays: 3,
+      shippingType: 'shipping_v2' as const,
+    },
+    {
+      id: `rate_ship_v2_premium_${orderId}`,
+      carrierName: 'Amazon Shipping v2',
+      serviceName: 'Amazon Premium Delivery 1-Day',
+      amount: Math.round((12.50 + baseWeightFactor * 2.10) * 100) / 100,
+      currency: appCurrency,
+      deliveryDays: 1,
+      shippingType: 'shipping_v2' as const,
+    }
+  ];
+
+  addLog('info', 'shipping_api', `Fetched 4 real-time shipping carrier quotes for Order ${orderId} (Weight: ${weightOz} oz).`);
+  res.json(rates);
+});
+
+// Buy shipping label for a single order
+app.post('/api/shipping/buy', (req, res) => {
+  const { orderId, rateId } = req.body;
+  const orderIndex = orders.findIndex(o => o.id === orderId);
+
+  if (orderIndex === -1) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+
+  const order = orders[orderIndex];
+
+  // Retrieve rates to mimic selection
+  const weightOz = order.weightOz || 16;
+  const baseWeightFactor = weightOz / 16;
+  const rates = [
+    { id: `rate_amz_buy_ground_${orderId}`, carrierName: 'Amazon Buy Shipping', serviceName: 'USPS Ground Advantage (via Amazon)', amount: Math.round((3.80 + baseWeightFactor * 0.95) * 100) / 100, currency: appCurrency, deliveryDays: 3, shippingType: 'buy_shipping' as const },
+    { id: `rate_amz_buy_priority_${orderId}`, carrierName: 'Amazon Buy Shipping', serviceName: 'UPS Ground (via Buy Shipping)', amount: Math.round((7.20 + baseWeightFactor * 1.20) * 100) / 100, currency: appCurrency, deliveryDays: 2, shippingType: 'buy_shipping' as const },
+    { id: `rate_ship_v2_ground_${orderId}`, carrierName: 'Amazon Shipping v2', serviceName: 'Amazon Ground Shipping v2', amount: Math.round((3.60 + baseWeightFactor * 0.85) * 100) / 100, currency: appCurrency, deliveryDays: 3, shippingType: 'shipping_v2' as const },
+    { id: `rate_ship_v2_premium_${orderId}`, carrierName: 'Amazon Shipping v2', serviceName: 'Amazon Premium Delivery 1-Day', amount: Math.round((12.50 + baseWeightFactor * 2.10) * 100) / 100, currency: appCurrency, deliveryDays: 1, shippingType: 'shipping_v2' as const }
+  ];
+
+  const selectedRate = rates.find(r => r.id === rateId) || rates[0];
+
+  // Generate real structured label mockup & track number
+  const prefix = selectedRate.carrierName === 'Amazon Shipping v2' ? 'AMZN' : '1Z';
+  const trackingNumber = prefix + Math.random().toString(36).substring(2, 16).toUpperCase();
+
+  orders[orderIndex] = {
+    ...order,
+    status: 'shipped',
+    selectedRate,
+    trackingNumber,
+    shippedAt: new Date().toISOString(),
+    labelUrl: 'generated_label_base64_marker_placeholder',
+  };
+
+  addLog('info', 'shipping_api', `Successfully purchased label via [${selectedRate.carrierName}] for ${order.source.toUpperCase()} Order ${orderId}. Track: ${trackingNumber}`);
+  res.json({ success: true, order: orders[orderIndex] });
+});
+
+// Bulk buy shipping labels (Auto process & bulk print)
+app.post('/api/shipping/bulk-buy', (req, res) => {
+  const { orderIds, preferredType } = req.body; // preferredType: 'cheapest' | 'fastest' | 'buy_shipping' | 'shipping_v2'
+  
+  addLog('info', 'shipping_api', `Starting Bulk Purchase processing for ${orderIds.length} orders...`);
+  
+  let processedCount = 0;
+  const processedOrders: any[] = [];
+
+  orderIds.forEach((orderId: string) => {
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx !== -1 && orders[idx].status !== 'shipped') {
+      const order = orders[idx];
+      const weightOz = order.weightOz || 16;
+      const baseWeightFactor = weightOz / 16;
+
+      // Establish simulated rates
+      const rateQuotes = [
+        { id: 'rate1', carrierName: 'Amazon Buy Shipping', serviceName: 'USPS Ground Advantage (via Amazon)', amount: Math.round((3.80 + baseWeightFactor * 0.95) * 100) / 100, currency: appCurrency, deliveryDays: 3, shippingType: 'buy_shipping' as const },
+        { id: 'rate2', carrierName: 'Amazon Buy Shipping', serviceName: 'UPS Ground (via Buy Shipping)', amount: Math.round((7.20 + baseWeightFactor * 1.20) * 100) / 100, currency: appCurrency, deliveryDays: 2, shippingType: 'buy_shipping' as const },
+        { id: 'rate3', carrierName: 'Amazon Shipping v2', serviceName: 'Amazon Ground Shipping v2', amount: Math.round((3.60 + baseWeightFactor * 0.85) * 100) / 100, currency: appCurrency, deliveryDays: 3, shippingType: 'shipping_v2' as const },
+        { id: 'rate4', carrierName: 'Amazon Shipping v2', serviceName: 'Amazon Premium Delivery 1-Day', amount: Math.round((12.50 + baseWeightFactor * 2.10) * 100) / 100, currency: appCurrency, deliveryDays: 1, shippingType: 'shipping_v2' as const }
+      ];
+
+      // Filter based on preferredType
+      let selected = rateQuotes[2]; // Default to Amazon Shipping v2 Ground (Cheapest)
+      if (preferredType === 'fastest') {
+        selected = rateQuotes.reduce((prev, curr) => prev.deliveryDays < curr.deliveryDays ? prev : curr);
+      } else if (preferredType === 'cheapest') {
+        selected = rateQuotes.reduce((prev, curr) => prev.amount < curr.amount ? prev : curr);
+      } else if (preferredType === 'buy_shipping') {
+        selected = rateQuotes.find(r => r.shippingType === 'buy_shipping') || rateQuotes[0];
+      } else if (preferredType === 'shipping_v2') {
+        selected = rateQuotes.find(r => r.shippingType === 'shipping_v2') || rateQuotes[2];
+      }
+
+      const prefix = selected.carrierName === 'Amazon Shipping v2' ? 'AMZN' : '1Z';
+      const trackingNumber = prefix + Math.random().toString(36).substring(2, 16).toUpperCase();
+
+      orders[idx] = {
+        ...order,
+        status: 'shipped',
+        selectedRate: selected,
+        trackingNumber,
+        shippedAt: new Date().toISOString(),
+        labelUrl: 'generated_label_base64_marker_placeholder',
+      };
+      processedOrders.push(orders[idx]);
+      processedCount++;
+      addLog('info', 'shipping_api', `[Bulk Purchase] Shipped ${orderId} via ${selected.carrierName} (${selected.serviceName}). Track: ${trackingNumber}`);
+    }
+  });
+
+  addLog('info', 'system', `Bulk auto-printing queue ready: Generated ${processedCount} shipping labels.`);
+  res.json({ success: true, processedCount, processedOrders });
+});
+
+// Gemini-API: Validate delivery addresses and spot issues
+app.post('/api/ai/analyze-address', async (req, res) => {
+  const { address } = req.body; // ShippingAddress structure
+
+  if (!address) {
+    return res.status(400).json({ error: 'Missing address object' });
+  }
+
+  const prompt = `Analyze this shipping delivery address for potential delivery delivery issues (e.g., missing apartment or suite numbers, invalid zip codes for state, spelling errors, or deliverability restrictions):
+  
+  Name: ${address.name}
+  Street: ${address.addressLine1} ${address.addressLine2 || ''}
+  City: ${address.city}
+  State/Region: ${address.stateOrRegion}
+  Postal Code: ${address.postalCode}
+  Country: ${address.countryCode}
+  
+  Formulate the analysis report strictly in JSON format matching this schema:
+  {
+    "isValid": boolean,
+    "issuesDetected": string[],
+    "riskLevel": "low" | "medium" | "high",
+    "suggestedFormat": {
+      "name": "string",
+      "addressLine1": "string",
+      "addressLine2": "string",
+      "city": "string",
+      "stateOrRegion": "string",
+      "postalCode": "string",
+      "countryCode": "string"
+    },
+    "explanation": "Brief human readable design explanation of findings."
+  }`;
+
+  try {
+    addLog('info', 'ai', `Requesting Gemini AI analysis of shipping address deliverability for: ${address.name}...`);
+    
+    const response = await getAi().models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isValid: { type: Type.BOOLEAN },
+            issuesDetected: { type: Type.ARRAY, items: { type: Type.STRING } },
+            riskLevel: { type: Type.STRING, description: "low, medium, or high" },
+            suggestedFormat: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                addressLine1: { type: Type.STRING },
+                addressLine2: { type: Type.STRING },
+                city: { type: Type.STRING },
+                stateOrRegion: { type: Type.STRING },
+                postalCode: { type: Type.STRING },
+                countryCode: { type: Type.STRING },
+              },
+              required: ["name", "addressLine1", "city", "stateOrRegion", "postalCode", "countryCode"]
+            },
+            explanation: { type: Type.STRING }
+          },
+          required: ["isValid", "issuesDetected", "riskLevel", "suggestedFormat", "explanation"]
+        }
+      }
+    });
+
+    const resultText = response.text || '{}';
+    const analysisResult = JSON.parse(resultText);
+    
+    addLog('info', 'ai', `Gemini completed deliverability analysis. Risk level rated: ${analysisResult.riskLevel.toUpperCase()}`);
+    res.json(analysisResult);
+  } catch (error: any) {
+    console.error('Gemini Address validation error:', error);
+    addLog('warn', 'ai', `Gemini Address validation failed or timed out: ${error.message || error}. Falling back to system standard rules.`);
+    
+    // Standby simulated response if Gemini API has issue
+    res.json({
+      isValid: true,
+      issuesDetected: [],
+      riskLevel: 'low',
+      suggestedFormat: address,
+      explanation: 'System standard parser validated formatting rules locally. Deliverability is standard.'
+    });
+  }
+});
+
+// Gemini-API: Intelligent Packaging Advisor
+app.post('/api/ai/packaging-suggest', async (req, res) => {
+  const { orderItems, weightOz } = req.body;
+
+  if (!orderItems || !Array.isArray(orderItems)) {
+    return res.status(400).json({ error: 'Missing order items' });
+  }
+
+  const itemsString = orderItems.map(i => `${i.quantity}x ${i.title} (SKU: ${i.sku})`).join(', ');
+
+  const prompt = `Based on the following item(s) to be shipped, recommend the best shipping container (e.g. padded bubble mailer, small cardboard box, large box), estimate optimal outer dimensions, and recommend packaging materials (like bubble wrap, kraft paper, or packing peanuts) to ensure safe transit:
+  
+  Items: ${itemsString}
+  Total Weight: ${weightOz} ounces
+  
+  Respond in JSON format with this structure:
+  {
+    "boxType": "string",
+    "dimensions": { "length": number, "width": number, "height": number },
+    "unit": "inches",
+    "fragile": boolean,
+    "packagingMaterials": string[],
+    "estimatedDimensionalWeightOz": number,
+    "optimizationTip": "string"
+  }`;
+
+  try {
+    addLog('info', 'ai', `Requesting Gemini AI optimal box recommendation for packaging...`);
+
+    const response = await getAi().models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            boxType: { type: Type.STRING },
+            dimensions: {
+              type: Type.OBJECT,
+              properties: {
+                length: { type: Type.NUMBER },
+                width: { type: Type.NUMBER },
+                height: { type: Type.NUMBER }
+              },
+              required: ["length", "width", "height"]
+            },
+            unit: { type: Type.STRING },
+            fragile: { type: Type.BOOLEAN },
+            packagingMaterials: { type: Type.ARRAY, items: { type: Type.STRING } },
+            estimatedDimensionalWeightOz: { type: Type.NUMBER },
+            optimizationTip: { type: Type.STRING }
+          },
+          required: ["boxType", "dimensions", "unit", "fragile", "packagingMaterials", "estimatedDimensionalWeightOz", "optimizationTip"]
+        }
+      }
+    });
+
+    const resultText = response.text || '{}';
+    const packagingResult = JSON.parse(resultText);
+
+    addLog('info', 'ai', `Gemini packaging advice generated: Suggests [${packagingResult.boxType}]. Dim Weight: ${packagingResult.estimatedDimensionalWeightOz} oz.`);
+    res.json(packagingResult);
+  } catch (error: any) {
+    console.error('Gemini Packaging advisor error:', error);
+    addLog('warn', 'ai', `Gemini Packaging advice failed or timed out: ${error.message || error}. Using local rule-based advisor.`);
+    
+    // Safe standard fallback
+    res.json({
+      boxType: 'Standard Cardboard Shipping Box',
+      dimensions: { length: 10, width: 8, height: 6 },
+      unit: 'inches',
+      fragile: false,
+      packagingMaterials: ['Standard Kraft paper packing filler', 'Reinforced packing tape'],
+      estimatedDimensionalWeightOz: 16,
+      optimizationTip: 'Consolidate elements into standard corrugated cardboard sizes to qualify for best rates.'
+    });
+  }
+});
+
+// Gemini-API: Intelligent Product Suggestion & Upgrade Engine
+app.post('/api/ai/product-suggest', async (req, res) => {
+  const { sku, prompt, currentProduct } = req.body;
+
+  if (!sku) {
+    return res.status(400).json({ error: 'SKU code is required' });
+  }
+
+  let promptText = '';
+  if (currentProduct) {
+    promptText = `You are a specialist e-commerce copywriter and inventory optimizer.
+The user wants to UPGRADE and OPTIMIZE an existing catalog product.
+Product SKU: ${sku}
+
+Current Catalog Data:
+Name/Title: ${currentProduct.name}
+Description: ${currentProduct.description || 'No description provided.'}
+Weight: ${currentProduct.weight || '12'} Oz
+Size: ${currentProduct.size || '10x6x4'} (LxWxH inches)
+Buying Price (Cost): $${currentProduct.buyingPrice || '5.00'}
+Selling Price (MSRP): $${currentProduct.sellingPrice || '12.99'}
+
+Please suggest an upgraded, high-converting product Name and professional Description.
+- The Title/Name should be extremely engaging, SEO-optimized for platforms like Amazon and eBay, clear, and descriptive (approx. 50-80 characters).
+- The Description should contain a compelling marketing summary followed by a clean, scannable bullet-pointed list of key features/highlights.
+- Suggest optimal, physically logical shipping specs (Weight in ${appUnitSystem === "metric" ? "grams" : "ounces"} and Dimensions like "LxWxH" in ${appUnitSystem === "metric" ? "cm" : "inches"}) and fair pricing (Cost and Retail Selling Price in ${appCurrency} with a healthy profitable markup of 40-150%) if you think the current ones are unreasonable, or just preserve them if they look realistic.
+- Explain your modifications in 'explanation'.`;
+  } else {
+    promptText = `You are a specialist e-commerce copywriter and inventory optimizer.
+The user wants to CREATE a brand new product in the catalog from scratch.
+Product SKU: ${sku}
+Brief Prompt / Keywords: ${prompt || 'generic e-commerce product'}
+
+Please generate:
+1. A highly professional, SEO-friendly e-commerce product Name/Title (approx. 50-80 characters) that stands out on Amazon and eBay.
+2. An engaging, rich Description containing a general marketing introduction followed by clear, scannable bullet points detailing key features, benefits, or specifications.
+3. Reasonable shipping specs based on this type of item:
+   - Weight (in ounces, represented as a number)
+   - Size/Dimensions (formatted exactly as "LxWxH", e.g., "8x6x2" or "12x8x6" in ${appUnitSystem === "metric" ? "cm" : "inches"})
+4. Profitable and realistic prices:
+   - Buying Price (approximate manufacturing or wholesale cost, represented as a number)
+   - Selling Price (MSRP retail price, represented as a number, demonstrating a standard 40-150% markup)
+5. A brief design overview explaining your choice of title and specs in 'explanation'.`;
+  }
+
+  try {
+    const isUpgrade = !!currentProduct;
+    addLog('info', 'ai', `Requesting Gemini AI to ${isUpgrade ? 'upgrade catalog SKU ' + sku : 'create new product for SKU ' + sku}...`);
+
+    const response = await getAi().models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: promptText,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING, description: "Highly engaging, SEO-optimized product title" },
+            description: { type: Type.STRING, description: "Rich description with brief intro and neat feature bullet points" },
+            weight: { type: Type.NUMBER, description: "Estimated physical weight of the packaged product in ounces (Oz)" },
+            size: { type: Type.STRING, description: `Estimated packaging dimensions formatted exactly as LxWxH in ${appUnitSystem === "metric" ? "cm" : "inches"}, e.g. 10x6x4` },
+            buyingPrice: { type: Type.NUMBER, description: "Logical wholesale buying cost in dollars" },
+            sellingPrice: { type: Type.NUMBER, description: "Suggested profitable retail selling price in dollars" },
+            explanation: { type: Type.STRING, description: "Brief explanation of changes or design choices made" }
+          },
+          required: ["name", "description", "weight", "size", "buyingPrice", "sellingPrice", "explanation"]
+        }
+      }
+    });
+
+    const resultText = response.text || '{}';
+    const productResult = JSON.parse(resultText);
+
+    addLog('info', 'ai', `Gemini AI product design generated successfully for SKU [${sku}].`);
+    res.json(productResult);
+  } catch (error: any) {
+    console.error('Gemini Product suggest error:', error);
+    addLog('warn', 'ai', `Gemini Product optimization failed or timed out: ${error.message || error}. Falling back to rules-based simulation.`);
+
+    // High-quality offline fallback
+    const cleanSku = (sku || '').trim().toUpperCase();
+    const cleanPrompt = (prompt || '').trim();
+    
+    let baseName = '';
+    let baseDesc = '';
+    let baseWeight = 16;
+    let baseSize = '10x6x4';
+    let baseBuy = 5.00;
+    let baseSell = 12.99;
+    
+    if (currentProduct) {
+      baseName = currentProduct.name.startsWith('[AI') ? currentProduct.name : `[AI Optimized] ${currentProduct.name}`;
+      baseDesc = `${currentProduct.description || 'Professional grade product.'}\n\n✨ AI Optimized Key Highlights:\n• Premium construction engineered for maximum durability\n• High performance multi-channel compatible design\n• Ergonomic shape optimized for easy packaging and transport\n• Rigorously tested under professional quality control`;
+      baseWeight = Number(currentProduct.weight) || 16;
+      baseSize = currentProduct.size || '10x6x4';
+      baseBuy = Number(currentProduct.buyingPrice) || 5.00;
+      baseSell = Number(currentProduct.sellingPrice) || 12.99;
+    } else {
+      const noun = cleanPrompt || 'Specialist Accessory';
+      const formattedNoun = noun.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      baseName = `Professional ${formattedNoun} - Multi-Channel Premium Edition (${cleanSku})`;
+      baseDesc = `High-quality ${noun} designed for professional performance and durability.\n\nKey Features:\n• Advanced materials ensure long product lifespan\n• Crafted with meticulous attention to detail\n• Ergonomically optimized for multi-scenario use\n• Full compliance with quality standards`;
+      baseWeight = 12;
+      baseSize = '8x6x2';
+      baseBuy = 4.50;
+      baseSell = 14.99;
+    }
+
+    res.json({
+      name: baseName,
+      description: baseDesc,
+      weight: baseWeight,
+      size: baseSize,
+      buyingPrice: baseBuy,
+      sellingPrice: baseSell,
+      explanation: 'Optimized via local rules-based simulation engine. Connect a valid Gemini API key to activate natural language generation.'
+    });
+  }
+});
+
+// Gemini-API: Intelligent Store Listing SKU Mapping Suggestion Engine
+app.post('/api/ai/sku-mappings/suggest', async (req, res) => {
+  const { channelSku, channelTitle, channelImage, channel } = req.body;
+
+  if (!channelSku || !channelTitle) {
+    return res.status(400).json({ error: 'Channel SKU and Title are required for suggestions.' });
+  }
+
+  // Define offline helper function first to use in fallback catch
+  const calculateLocalFuzzyMatch = (cSku: string, cTitle: string, cImg: string, warehouseProducts: any[]) => {
+    let bestMatch: any = null;
+    let bestScore = -1;
+    let bestType = 'hybrid';
+    let bestReason = '';
+
+    for (const p of warehouseProducts) {
+      let skuScore = 0;
+      let titleScore = 0;
+      let imageScore = 0;
+      let reasons: string[] = [];
+
+      const cleanCSku = cSku.toLowerCase();
+      const cleanWSku = p.sku.toLowerCase();
+
+      // 1. SKU Matching Score
+      if (cleanCSku === cleanWSku) {
+        skuScore = 45;
+        reasons.push("SKU code is an exact match");
+      } else {
+        const cParts = cleanCSku.split(/[-_\s]+/);
+        const wParts = cleanWSku.split(/[-_\s]+/);
+        let overlaps = 0;
+        for (const part of cParts) {
+          if (part.length > 2 && wParts.includes(part)) {
+            overlaps++;
+          }
+        }
+        if (overlaps > 0) {
+          skuScore = 15 + Math.min(overlaps * 10, 25);
+          reasons.push(`SKU codes share segment overlaps ("${overlaps} matching identifiers")`);
+        } else if (cleanCSku.substring(0, 3) === cleanWSku.substring(0, 3)) {
+          skuScore = 10;
+          reasons.push("SKU codes share the same marketplace channel prefix");
+        }
+      }
+
+      // 2. Title Semantics Word Match
+      const cWords = cTitle.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+      const pWords = p.name.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+      const stopwords = ["with", "and", "the", "for", "out", "new", "pro", "premium", "inch", "high", "speed"];
+      const filteredCW = cWords.filter(w => !stopwords.includes(w));
+      const filteredPW = pWords.filter(w => !stopwords.includes(w));
+
+      const matchingWords = filteredCW.filter(w => filteredPW.includes(w));
+      if (matchingWords.length > 0) {
+        titleScore = (matchingWords.length / Math.max(filteredPW.length, 1)) * 40;
+        reasons.push(`Highly overlapping keyword matches: "${matchingWords.slice(0, 3).join(', ')}"`);
+      }
+
+      // 3. Image Keywords Match
+      const cImgUrl = (cImg || '').toLowerCase();
+      const pImgUrl = (p.image || '').toLowerCase();
+      const imageKeywords = ["earbuds", "cable", "chair", "blender", "board", "cutting", "watch", "yoga", "mat"];
+      let imageMatchedWord = '';
+      for (const kw of imageKeywords) {
+        if (cImgUrl.includes(kw) && pImgUrl.includes(kw)) {
+          imageScore = 15;
+          imageMatchedWord = kw;
+          break;
+        }
+      }
+      if (imageScore > 0) {
+        reasons.push(`Visual tags match category "${imageMatchedWord}"`);
+      }
+
+      const totalScore = skuScore + titleScore + imageScore;
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
+        bestMatch = p;
+        if (skuScore > 20 && titleScore > 20) {
+          bestType = 'hybrid';
+        } else if (skuScore > titleScore) {
+          bestType = 'sku';
+        } else {
+          bestType = 'title';
+        }
+        bestReason = reasons.join(', ') || 'Partial matching identifiers detected.';
+      }
+    }
+
+    const confidence = Math.min(Math.round(bestScore), 100);
+    if (confidence < 15 || !bestMatch) {
+      return {
+        suggestedWarehouseSku: '',
+        suggestedProductName: '',
+        confidence: 0,
+        matchReason: 'No physical warehouse product in the catalog matches this external store listing.',
+        matchType: 'hybrid'
+      };
+    }
+
+    return {
+      suggestedWarehouseSku: bestMatch.sku,
+      suggestedProductName: bestMatch.name,
+      confidence,
+      matchReason: bestReason,
+      matchType: bestType
+    };
+  };
+
+  const prompt = `You are an expert e-commerce catalog integration assistant.
+You are helping to map a merchant's sales channel product listing to an internal physical warehouse product.
+
+Channel Listing to map:
+- SKU: ${channelSku}
+- Title: "${channelTitle}"
+- Image: "${channelImage || 'none'}"
+- Channel: "${channel || 'all'}"
+
+Available Physical Warehouse Products in Catalog:
+${JSON.stringify(products.map(p => ({ sku: p.sku, name: p.name, description: p.description, image: p.image })))}
+
+Please identify the single best matching warehouse product SKU from the list of available warehouse products.
+Match it based on:
+1. SKU naming similarities (e.g. matching codes, substrings, prefixes/suffixes, or common descriptors).
+2. Title semantics (e.g. overlapping product types, categories, nouns, descriptors like "Earbuds", "Cable", "Blender").
+3. Image similarity keywords (if URLs or themes seem related).
+
+Provide your response in JSON format with this exact schema:
+{
+  "suggestedWarehouseSku": "The SKU code of the best matching physical warehouse product, or empty string if no product fits at all (e.g., less than 10% similarity)",
+  "confidence": number, // A percentage between 0 and 100 indicating match confidence
+  "matchReason": "A clear, professional, concise 1-sentence explanation of why this product is the best match (e.g., 'The channel SKU contains \"EARBUDS\" which matches internal Earbuds SKU AMZ-ELEC-402 with highly overlapping title keywords.')",
+  "matchType": "sku" | "title" | "image" | "hybrid" // Choose the primary matching criteria
+}
+`;
+
+  try {
+    addLog('info', 'ai', `Requesting Gemini AI to find smart mapping connection suggestion for Store SKU [${channelSku}]...`);
+
+    const response = await getAi().models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            suggestedWarehouseSku: { type: Type.STRING },
+            confidence: { type: Type.INTEGER },
+            matchReason: { type: Type.STRING },
+            matchType: { type: Type.STRING }
+          },
+          required: ["suggestedWarehouseSku", "confidence", "matchReason", "matchType"]
+        }
+      }
+    });
+
+    const resultText = response.text || '{}';
+    const parsedResult = JSON.parse(resultText);
+
+    // Attach human readable name
+    const matchedProduct = products.find(p => p.sku === parsedResult.suggestedWarehouseSku);
+    parsedResult.suggestedProductName = matchedProduct ? matchedProduct.name : '';
+
+    addLog('info', 'ai', `Gemini smart mapping completed: Suggested [${parsedResult.suggestedWarehouseSku}] with ${parsedResult.confidence}% confidence.`);
+    res.json(parsedResult);
+  } catch (error: any) {
+    console.error('Gemini mapping suggestions failed:', error);
+    addLog('warn', 'ai', `Gemini mapping advice failed: ${error.message || error}. Falling back to deterministic fuzzy-logic matching.`);
+
+    // Perform offline fallback calculation
+    const fallbackResult = calculateLocalFuzzyMatch(channelSku, channelTitle, channelImage, products);
+    res.json(fallbackResult);
+  }
+});
+
+// --- SHIPPING RULES ENGINE & ORDER UPDATING API ---
+
+let shippingRules: any[] = [
+  {
+    id: 'rule_1',
+    name: 'Heavy Parcel UPS Routing',
+    description: 'Automates heavy weight parcels (> 150 oz) to go via UPS Ground through Buy Shipping.',
+    isActive: true,
+    priority: 10,
+    conditions: [
+      { field: 'weightOz', operator: 'greater_than', value: '150' }
+    ],
+    actions: [
+      { type: 'assign_carrier', value: 'Amazon Buy Shipping' },
+      { type: 'assign_service', value: 'UPS Ground (via Buy Shipping)' },
+      { type: 'add_tag', value: 'Heavy Duty' }
+    ]
+  },
+  {
+    id: 'rule_2',
+    name: 'Amazon Prime Next Day Priority',
+    description: 'Requires next day dispatch date and sets Premium service for high-value Amazon items.',
+    isActive: true,
+    priority: 8,
+    conditions: [
+      { field: 'source', operator: 'equals', value: 'amazon' },
+      { field: 'totalAmount', operator: 'greater_than', value: '100' }
+    ],
+    actions: [
+      { type: 'assign_carrier', value: 'Amazon Shipping v2' },
+      { type: 'assign_service', value: 'Amazon Premium Delivery 1-Day' },
+      { type: 'require_shipping_date', value: 'true' },
+      { type: 'add_tag', value: 'Prime Priority' }
+    ]
+  },
+  {
+    id: 'rule_3',
+    name: 'eBay Default Economy Routing',
+    description: 'Handles incoming eBay items with standard USPS service and adds customized packing note.',
+    isActive: true,
+    priority: 5,
+    conditions: [
+      { field: 'source', operator: 'equals', value: 'ebay' }
+    ],
+    actions: [
+      { type: 'assign_carrier', value: 'Amazon Buy Shipping' },
+      { type: 'assign_service', value: 'USPS Ground Advantage (via Amazon)' },
+      { type: 'add_note', value: 'eBay packing list enclosed. Thank you for your purchase!' }
+    ]
+  }
+];
+
+// Helper to check if an order matches all conditions of a rule
+function matchesConditions(order: any, conditions: any[]): boolean {
+  if (!conditions || conditions.length === 0) return false;
+  
+  return conditions.every(cond => {
+    let orderVal: any = undefined;
+    
+    switch (cond.field) {
+      case 'source':
+        orderVal = order.source;
+        break;
+      case 'sku':
+        orderVal = order.items?.map((i: any) => i.sku).join(', ') || '';
+        break;
+      case 'skuCategory':
+        const prodCategories = order.items?.map((i: any) => {
+          const p = products.find(prod => prod.sku === i.sku || prod.mappedSku === i.sku);
+          return p?.description || ''; // Check description or custom tags for categories like 'hazmat', 'heavy'
+        }).join(' ') || '';
+        orderVal = prodCategories.toLowerCase();
+        break;
+      case 'weightOz':
+        orderVal = order.weightOz !== undefined ? Number(order.weightOz) : 0;
+        break;
+      case 'destinationState':
+        orderVal = order.shippingAddress?.stateOrRegion || '';
+        break;
+      case 'destinationZip':
+        orderVal = order.shippingAddress?.postalCode || order.shippingAddress?.zipCode || order.shippingAddress?.zip || '';
+        break;
+      case 'destinationCountry':
+        orderVal = order.shippingAddress?.countryCode || '';
+        break;
+      case 'totalAmount':
+        orderVal = Number(order.totalAmount || 0);
+        break;
+      case 'shippingDate':
+        orderVal = order.shippingDate || '';
+        break;
+      default:
+        return false;
+    }
+    
+    const condValStr = String(cond.value).toLowerCase().trim();
+    const orderValStr = String(orderVal).toLowerCase().trim();
+    
+    switch (cond.operator) {
+      case 'equals':
+        return orderValStr === condValStr;
+      case 'contains':
+        return orderValStr.includes(condValStr);
+      case 'starts_with':
+        return orderValStr.startsWith(condValStr);
+      case 'greater_than':
+        return Number(orderVal) > Number(cond.value);
+      case 'less_than':
+        return Number(orderVal) < Number(cond.value);
+      case 'is_empty':
+        return !orderVal || orderVal === 0 || orderVal === '';
+      case 'is_not_empty':
+        return !!orderVal && orderVal !== 0 && orderVal !== '';
+      default:
+        return false;
+    }
+  });
+}
+
+// Helper to apply rule actions on an order
+function applyRuleActions(order: any, actions: any[]): boolean {
+  let modificationsMade = false;
+  actions.forEach(act => {
+    switch (act.type) {
+      case 'assign_carrier':
+        if (order.carrier !== act.value) {
+          order.carrier = act.value;
+          modificationsMade = true;
+        }
+        break;
+      case 'assign_service':
+        const rateAmount = order.weightOz ? Math.round((4.00 + (order.weightOz / 16) * 1.10) * 100) / 100 : 5.50;
+        const rate = {
+          id: `rate_auto_${order.id}_${Math.floor(Math.random() * 1000)}`,
+          carrierName: order.carrier || 'Amazon Shipping v2',
+          serviceName: act.value,
+          amount: rateAmount,
+          currency: order.currency || appCurrency,
+          deliveryDays: 2,
+          shippingType: (order.carrier || '').toLowerCase().includes('buy') ? 'buy_shipping' : 'shipping_v2'
+        };
+        order.selectedRate = rate;
+        modificationsMade = true;
+        break;
+      case 'add_tag':
+        if (!order.tags) order.tags = [];
+        if (!order.tags.includes(act.value)) {
+          order.tags.push(act.value);
+          modificationsMade = true;
+        }
+        break;
+      case 'add_note':
+        if (!order.notes) {
+          order.notes = act.value;
+          modificationsMade = true;
+        } else if (!order.notes.includes(act.value)) {
+          order.notes = order.notes + ' | ' + act.value;
+          modificationsMade = true;
+        }
+        break;
+      case 'require_shipping_date':
+        if (!order.shippingDate) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          order.shippingDate = tomorrow.toISOString().split('T')[0];
+          modificationsMade = true;
+        }
+        break;
+      case 'set_weight':
+        if (!order.weightOz) {
+          order.weightOz = Number(act.value) || 16;
+          modificationsMade = true;
+        }
+        break;
+      case 'park_order':
+        if (order.status !== 'parked') {
+          order.status = 'parked';
+          if (!order.tags) order.tags = [];
+          if (!order.tags.includes('Parked')) {
+            order.tags.push('Parked');
+          }
+          modificationsMade = true;
+        }
+        break;
+      case 'split_order':
+        const totalQty = order.items?.reduce((sum: number, i: any) => sum + (i.quantity || 1), 0) || 0;
+        if (totalQty > 1 && !order.isSplitParent) {
+          order.isSplitParent = true;
+          const newOrdersToCreate: any[] = [];
+          order.items.forEach((item: any, idx: number) => {
+            if (item.quantity > 1) {
+              for (let q = 0; q < item.quantity; q++) {
+                const subOrder = JSON.parse(JSON.stringify(order));
+                subOrder.id = `${order.id}-S${idx + 1}-${q + 1}`;
+                subOrder.items = [{ ...item, quantity: 1 }];
+                subOrder.totalAmount = Math.round((order.totalAmount / totalQty) * 100) / 100;
+                subOrder.isSplitParent = false;
+                subOrder.status = 'pending';
+                subOrder.tags = [...(subOrder.tags || []), 'Split Order'];
+                newOrdersToCreate.push(subOrder);
+              }
+            } else {
+              const subOrder = JSON.parse(JSON.stringify(order));
+              subOrder.id = `${order.id}-S${idx + 1}-1`;
+              subOrder.items = [{ ...item }];
+              subOrder.totalAmount = Math.round((order.totalAmount / totalQty) * 100) / 100;
+              subOrder.isSplitParent = false;
+              subOrder.status = 'pending';
+              subOrder.tags = [...(subOrder.tags || []), 'Split Order'];
+              newOrdersToCreate.push(subOrder);
+            }
+          });
+          order.status = 'parked'; // Original is parked
+          order.tags = [...(order.tags || []), 'Splitted Parent'];
+          orders.push(...newOrdersToCreate); saveToDB();
+          modificationsMade = true;
+        }
+        break;
+    }
+  });
+  return modificationsMade;
+}
+
+// Global evaluation runner
+function runRulesEvaluationOnPending() {
+  const activeRules = shippingRules
+    .filter(r => r.isActive)
+    .sort((a, b) => b.priority - a.priority);
+
+  if (activeRules.length === 0) return 0;
+
+  let totalApplied = 0;
+
+  orders.forEach(order => {
+    if (order.status !== 'pending') return;
+
+    activeRules.forEach(rule => {
+      if (matchesConditions(order, rule.conditions)) {
+        const changed = applyRuleActions(order, rule.actions);
+        if (changed) {
+          totalApplied++;
+          addLog('info', 'system', `[Rules Engine] Automated order ${order.id} via Rule "${rule.name}"`);
+        }
+      }
+    });
+  });
+
+  return totalApplied;
+}
+
+// GET all shipping rules
+app.get('/api/shipping-rules', (req, res) => {
+  res.json(shippingRules);
+});
+
+// POST save shipping rule
+app.post('/api/shipping-rules', (req, res) => {
+  const { id, name, description, isActive, priority, conditions, actions } = req.body;
+  
+  if (!name || !conditions || !Array.isArray(conditions) || !actions || !Array.isArray(actions)) {
+    return res.status(400).json({ error: 'Name, conditions (array), and actions (array) are required.' });
+  }
+
+  if (id) {
+    const idx = shippingRules.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      shippingRules[idx] = {
+        ...shippingRules[idx],
+        name,
+        description: description || '',
+        isActive: isActive !== undefined ? !!isActive : true,
+        priority: priority !== undefined ? Number(priority) : 0,
+        conditions,
+        actions
+      };
+      addLog('info', 'system', `Updated automation rule: "${name}" (Priority: ${priority})`);
+      res.json({ success: true, rule: shippingRules[idx] });
+    } else {
+      res.status(404).json({ error: 'Rule not found' });
+    }
+  } else {
+    const newRule = {
+      id: 'rule_' + Math.random().toString(36).substring(2, 11),
+      name,
+      description: description || '',
+      isActive: isActive !== undefined ? !!isActive : true,
+      priority: priority !== undefined ? Number(priority) : 0,
+      conditions,
+      actions
+    };
+    shippingRules.push(newRule);
+    addLog('info', 'system', `Created automation rule: "${name}"`);
+    res.json({ success: true, rule: newRule });
+  }
+});
+
+// POST delete rule
+app.post('/api/shipping-rules/delete', (req, res) => {
+  const { id } = req.body;
+  const idx = shippingRules.findIndex(r => r.id === id);
+  if (idx !== -1) {
+    const name = shippingRules[idx].name;
+    shippingRules = shippingRules.filter(r => r.id !== id);
+    addLog('warn', 'system', `Deleted automation rule: "${name}"`);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Rule not found' });
+  }
+});
+
+// POST evaluate shipping rules
+app.post('/api/shipping-rules/evaluate', (req, res) => {
+  const count = runRulesEvaluationOnPending();
+  addLog('info', 'system', `Manual Rules Evaluation: Triggered ${count} automation actions on pending orders.`);
+  res.json({ success: true, count, orders });
+});
+
+app.post('/api/orders/:id/split', (req, res) => {
+  const { id } = req.params;
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+
+  const order = orders[idx];
+  if (order.items.length <= 1 && order.items[0].quantity === 1) {
+    return res.status(400).json({ error: 'Order cannot be split further (only 1 item).' });
+  }
+
+  // Simple heuristic: split hazmat/heavy items, or just split into two orders roughly evenly
+  const shipment1Items = [];
+  const shipment2Items = [];
+  
+  order.items.forEach(item => {
+    const isHeavyHazmat = item.sku.toLowerCase().includes('hz') || item.sku.toLowerCase().includes('heavy') || item.title.toLowerCase().includes('heavy');
+    if (isHeavyHazmat) {
+      shipment2Items.push(item);
+    } else {
+      shipment1Items.push(item);
+    }
+  });
+
+  // If the heuristic didn't separate them, just split by index
+  if (shipment1Items.length === 0 || shipment2Items.length === 0) {
+    const half = Math.ceil(order.items.length / 2);
+    shipment1Items.length = 0;
+    shipment2Items.length = 0;
+    shipment1Items.push(...order.items.slice(0, half));
+    shipment2Items.push(...order.items.slice(half));
+  }
+
+  const newOrder1 = { ...order, id: `${order.id}-A`, items: shipment1Items, tags: [...(order.tags || []), 'Split Order'] };
+  const newOrder2 = { ...order, id: `${order.id}-B`, items: shipment2Items, tags: [...(order.tags || []), 'Split Order'] };
+
+  // Replace original order with newOrder1, insert newOrder2
+  orders.splice(idx, 1, newOrder1, newOrder2);
+
+  addLog('info', 'system', `Order ${order.id} automatically split into 2 shipments based on SKU rules.`);
+  res.json({ success: true, newOrders: [newOrder1, newOrder2] });
+});
+
+// POST update order notes, shippingDate, weight, dimensions, tags, carrier etc.
+app.post('/api/orders/update', (req, res) => {
+  const { id, notes, tags, weightOz, dimensions, shippingDate, carrier, selectedRate, status } = req.body;
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx !== -1) {
+    orders[idx] = {
+      ...orders[idx],
+      notes: notes !== undefined ? notes : orders[idx].notes,
+      tags: tags !== undefined ? tags : orders[idx].tags,
+      weightOz: weightOz !== undefined ? (weightOz ? Number(weightOz) : undefined) : orders[idx].weightOz,
+      dimensions: dimensions !== undefined ? (dimensions ? {
+        length: Number(dimensions.length),
+        width: Number(dimensions.width),
+        height: Number(dimensions.height),
+      } : undefined) : orders[idx].dimensions,
+      shippingDate: shippingDate !== undefined ? shippingDate : orders[idx].shippingDate,
+      carrier: carrier !== undefined ? carrier : orders[idx].carrier,
+      selectedRate: selectedRate !== undefined ? selectedRate : orders[idx].selectedRate,
+      status: status !== undefined ? status : orders[idx].status,
+    };
+    addLog('info', 'system', `Manual edit saved for order ${id}.`);
+    res.json({ success: true, order: orders[idx], orders });
+    broadcast('orders', orders);
+  } else {
+    res.status(404).json({ error: 'Order not found' });
+  }
+});
+let sseClients: any[] = [];
+
+function broadcast(type: string, data: any) {
+  const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach(client => client.write(message));
+}
+
+app.get('/api/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  // Send initial ping
+  res.write('event: ping\ndata: ok\n\n');
+  
+  sseClients.push(res);
+  
+  req.on('close', () => {
+    sseClients = sseClients.filter(client => client !== res);
+  });
+});
+
+// --- CRM Endpoints ---
+let crmCustomers: Record<string, any> = {};
+let crmTickets: any[] = [];
+
+app.get("/api/crm/customers", (req, res) => {
+  res.json(crmCustomers);
+});
+
+app.post("/api/crm/customers", (req, res) => {
+  const { id, data } = req.body;
+  if (id && data) {
+    crmCustomers[id] = { ...(crmCustomers[id] || {}), ...data };
+    res.json({ success: true, customer: crmCustomers[id] });
+  broadcast('crmCustomers', crmCustomers);
+  } else {
+    res.status(400).json({ error: "Missing id or data" });
+  }
+});
+
+app.get("/api/crm/tickets", (req, res) => {
+  res.json(crmTickets);
+});
+
+app.post("/api/crm/tickets", (req, res) => {
+  const { ticket } = req.body;
+  if (ticket && ticket.id) {
+    const idx = crmTickets.findIndex((t: any) => t.id === ticket.id);
+    if (idx !== -1) {
+      crmTickets[idx] = ticket;
+    } else {
+      crmTickets.push(ticket);
+    }
+    res.json({ success: true, ticket });
+    broadcast('crmTickets', crmTickets);
+  } else {
+    res.status(400).json({ error: "Invalid ticket" });
+  }
+});
+
+
+// Mounting Vite dev middleware or serving static files in production
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

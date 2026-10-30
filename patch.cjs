@@ -1,0 +1,152 @@
+const fs = require('fs');
+const code = fs.readFileSync('src/App.tsx', 'utf8');
+
+const target = `        {/* Activity Logs Console Terminal */}
+        <div className="bg-slate-900 text-slate-300 rounded-2xl border border-slate-800 p-4 shadow-inner shrink-0" id="activity-log-dashboard">
+          <div className="flex justify-between items-center mb-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Activity className="w-4 h-4 text-emerald-400" /> API Gateway Logs / Connection Console
+            </h4>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleClearLogs}
+                className="text-[10px] text-slate-500 hover:text-slate-300 font-semibold"
+                id="clear-logs-btn"
+              >
+                Clear Console
+              </button>
+              <span className="text-[10px] bg-slate-800 text-slate-400 font-mono px-2 py-0.5 rounded">
+                Live Websocket Simulation Stream
+              </span>
+            </div>
+          </div>
+          <div className="bg-slate-950 rounded-xl p-3 h-32 overflow-y-auto font-mono text-[11px] space-y-1.5 border border-slate-800" id="logs-container">
+            {logs.length === 0 ? (
+              <p className="text-slate-600 italic">No network connection logs to show. Trigger a synchronization event.</p>
+            ) : (
+              logs.map((log) => {
+                const isError = log.level === 'error';
+                const isWarn = log.level === 'warn';
+                const isAi = log.source === 'ai';
+                return (
+                  <div key={log.id} className="flex items-start gap-1.5">
+                    <span className="text-slate-600 text-[10px]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                    
+                    <span className={\`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0 \${
+                      log.source === 'amazon_api' 
+                        ? 'bg-amber-950/50 text-amber-400 border border-amber-900/35' 
+                        : log.source === 'ebay_api'
+                          ? 'bg-blue-950/50 text-blue-400 border border-blue-900/35'
+                          : isAi 
+                             ? 'bg-indigo-950 text-indigo-400 border border-indigo-900'
+                            : 'bg-slate-800 text-slate-300'
+                    }\`}>
+                      {log.source.replace('_', '-')}
+                    </span>
+                    <span className={\`\${
+                      isError 
+                        ? 'text-rose-400 font-bold' 
+                        : isWarn 
+                          ? 'text-amber-400 font-semibold' 
+                          : isAi 
+                            ? 'text-indigo-300 font-medium' 
+                            : 'text-slate-300'
+                    }\`}>
+                      {log.message}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>`;
+
+const replacement = `        {activeTab === 'logs' && (
+          <div className="flex-1 flex flex-col min-h-0" id="logs-tab-container">
+            <div className="bg-slate-900 text-slate-300 flex-1 flex flex-col rounded-2xl border border-slate-800 p-4 shadow-inner">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-emerald-400" /> API Gateway Logs / Connection Console
+                </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleClearLogs}
+                    className="text-[10px] text-slate-500 hover:text-slate-300 font-semibold bg-slate-800 px-3 py-1 rounded"
+                    id="clear-logs-btn"
+                  >
+                    Clear Console
+                  </button>
+                  <button
+                    onClick={async () => {
+                      // Action reversal logic placeholder
+                      alert("Reversing last bulk action...");
+                      try {
+                        const res = await fetch('/api/orders/bulk-action', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'reverse', ids: [] })
+                        });
+                        if (res.ok) {
+                          alert("Action reversed successfully.");
+                          loadData();
+                        } else {
+                          alert("Failed to reverse action.");
+                        }
+                      } catch (e) {
+                        alert("Error reversing action");
+                      }
+                    }}
+                    className="text-[10px] text-amber-500 hover:text-amber-300 font-semibold bg-slate-800 px-3 py-1 rounded"
+                  >
+                    Reverse Last Action
+                  </button>
+                  <span className="text-[10px] bg-slate-800 text-slate-400 font-mono px-2 py-1 rounded">
+                    24-Hour History • Live Websocket Simulation Stream
+                  </span>
+                </div>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-3 flex-1 overflow-y-auto font-mono text-[11px] space-y-1.5 border border-slate-800" id="logs-container">
+                {logs.length === 0 ? (
+                  <p className="text-slate-600 italic">No network connection logs to show. Trigger a synchronization event.</p>
+                ) : (
+                  logs.map((log) => {
+                    const isError = log.level === 'error';
+                    const isWarn = log.level === 'warn';
+                    const isAi = log.source === 'ai';
+                    return (
+                      <div key={log.id} className="flex items-start gap-1.5">
+                        <span className="text-slate-600 text-[10px]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                        <span className={\`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0 \${
+                          log.source === 'amazon_api' 
+                            ? 'bg-amber-950/50 text-amber-400 border border-amber-900/35' 
+                            : log.source === 'ebay_api'
+                              ? 'bg-blue-950/50 text-blue-400 border border-blue-900/35'
+                              : isAi 
+                                ? 'bg-indigo-950 text-indigo-400 border border-indigo-900'
+                                : 'bg-slate-800 text-slate-300'
+                        }\`}>
+                          {log.source.replace('_', '-')}
+                        </span>
+                        <span className={\`\${
+                          isError 
+                            ? 'text-rose-400 font-bold' 
+                            : isWarn 
+                              ? 'text-amber-400 font-semibold' 
+                              : isAi 
+                                ? 'text-indigo-300 font-medium' 
+                                : 'text-slate-300'
+                        }\`}>
+                          {log.message}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}`;
+
+const updatedCode = code.replace(target, replacement);
+fs.writeFileSync('src/App.tsx', updatedCode);
+console.log("Replaced successfully: " + (code !== updatedCode));

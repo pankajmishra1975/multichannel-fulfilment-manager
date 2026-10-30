@@ -1,0 +1,513 @@
+{
+  "products": [
+    {
+      "sku": "AMZ-ELEC-402",
+      "name": "Wireless Noise-Cancelling Earbuds Pro",
+      "description": "Premium active noise cancelling earbuds with fast wireless charging case.",
+      "weight": 14,
+      "size": "8x6x4",
+      "buyingPrice": 45,
+      "sellingPrice": 89.99,
+      "vatType": "VAT",
+      "image": "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=200&auto=format&fit=crop&q=60",
+      "stock": 3,
+      "stockByWarehouse": {
+        "wh-main": 2,
+        "wh-east": 1,
+        "wh-west": 0
+      },
+      "mappedSku": "AMZ-ELEC-402",
+      "source": "amazon"
+    },
+    {
+      "sku": "AMZ-CABLE-USB",
+      "name": "6ft Nylon Braided USB-C Charging Cable",
+      "description": "Ultra-durable military-grade nylon braided charger cable supporting Power Delivery.",
+      "weight": 3,
+      "size": "4x4x1",
+      "buyingPrice": 3.2,
+      "sellingPrice": 12.5,
+      "vatType": "VAT",
+      "image": "https://images.unsplash.com/photo-1589615224935-07d409439d0c?w=200&auto=format&fit=crop&q=60",
+      "stock": 25,
+      "stockByWarehouse": {
+        "wh-main": 15,
+        "wh-east": 8,
+        "wh-west": 2
+      },
+      "mappedSku": "AMZ-CABLE-USB",
+      "source": "amazon"
+    },
+    {
+      "sku": "EB-HOME-GARDEN",
+      "name": "Eco-Friendly Bamboo Cutting Board Set",
+      "description": "Set of 3 organic bamboo chopping boards with deep juice grooves.",
+      "weight": 32,
+      "size": "12x10x2",
+      "buyingPrice": 12,
+      "sellingPrice": 34,
+      "vatType": "Non VAT",
+      "image": "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=200&auto=format&fit=crop&q=60",
+      "stock": 2,
+      "stockByWarehouse": {
+        "wh-main": 2,
+        "wh-east": 0,
+        "wh-west": 0
+      },
+      "mappedSku": "EB-HOME-GARDEN",
+      "source": "ebay"
+    },
+    {
+      "sku": "AMZ-OFFICE-CHAIR",
+      "name": "Ergonomic Mesh Swivel Desk Chair",
+      "description": "High back office chair with adjustable lumbar support and 3D armrests.",
+      "weight": 380,
+      "size": "26x24x14",
+      "buyingPrice": 85,
+      "sellingPrice": 189.99,
+      "vatType": "VAT",
+      "image": "https://images.unsplash.com/photo-1580481072645-022f9a6dbf27?w=200&auto=format&fit=crop&q=60",
+      "stock": 12,
+      "stockByWarehouse": {
+        "wh-main": 8,
+        "wh-east": 3,
+        "wh-west": 1
+      },
+      "mappedSku": "AMZ-OFFICE-CHAIR",
+      "source": "amazon"
+    },
+    {
+      "sku": "EB-KITCH-BLNDR",
+      "name": "High-Speed Professional Kitchen Blender 1200W",
+      "description": "Heavy duty commercial style power blender for smoothies, purees and hot soups.",
+      "weight": 120,
+      "size": "14x10x10",
+      "buyingPrice": 32.5,
+      "sellingPrice": 79.99,
+      "vatType": "VAT",
+      "image": "https://images.unsplash.com/photo-1578643463396-0997cb5328c1?w=200&auto=format&fit=crop&q=60",
+      "stock": 1,
+      "stockByWarehouse": {
+        "wh-main": 1,
+        "wh-east": 0,
+        "wh-west": 0
+      },
+      "mappedSku": "EB-KITCH-BLNDR",
+      "source": "ebay"
+    },
+    {
+      "sku": "BNDL-TECH-PACK",
+      "name": "[Bundle] Tech Enthusiast Pack (Earbuds + Cable)",
+      "description": "A special high-value bundle containing 1x Wireless Noise-Cancelling Earbuds Pro and 1x 6ft Nylon Braided USB-C Charging Cable.",
+      "weight": 17,
+      "size": "10x6x4",
+      "buyingPrice": 48.2,
+      "sellingPrice": 95,
+      "vatType": "VAT",
+      "image": "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&auto=format&fit=crop&q=60",
+      "stock": 0,
+      "stockByWarehouse": {
+        "wh-main": 0,
+        "wh-east": 0,
+        "wh-west": 0
+      },
+      "isBundle": true,
+      "bundleComponents": [
+        {
+          "sku": "AMZ-ELEC-402",
+          "quantity": 1
+        },
+        {
+          "sku": "AMZ-CABLE-USB",
+          "quantity": 1
+        }
+      ],
+      "source": "all"
+    }
+  ],
+  "orders": [
+    {
+      "id": "AMZ-882-9930129",
+      "source": "amazon",
+      "status": "shipped",
+      "buyerName": "David Miller",
+      "buyerEmail": "david.m@example.com",
+      "shippingAddress": {
+        "name": "David Miller",
+        "addressLine1": "1428 Elm Street",
+        "addressLine2": "Apt 4B",
+        "city": "Los Angeles",
+        "stateOrRegion": "CA",
+        "postalCode": "90012",
+        "countryCode": "US",
+        "phone": "+1 213-555-0199"
+      },
+      "items": [
+        {
+          "sku": "AMZ-ELEC-402",
+          "title": "Wireless Noise-Cancelling Earbuds Pro",
+          "quantity": 1,
+          "price": 89.99
+        },
+        {
+          "sku": "AMZ-CABLE-USB",
+          "title": "6ft Nylon Braided USB-C Charging Cable",
+          "quantity": 2,
+          "price": 12.5
+        }
+      ],
+      "orderDate": "2026-10-10T12:47:30.247Z",
+      "totalAmount": 114.99,
+      "currency": "GBP",
+      "weightOz": 14,
+      "dimensions": {
+        "length": 8,
+        "width": 6,
+        "height": 4
+      },
+      "tags": [
+        "Prime Orders"
+      ],
+      "carrier": "Amazon Buy Shipping",
+      "serviceClass": "USPS Ground Advantage (via Amazon)",
+      "selectedRate": {
+        "id": "rate_tmpl_amz_buy_usps_AMZ-882-9930129",
+        "carrierName": "Amazon Buy Shipping",
+        "serviceName": "USPS Ground Advantage (via Amazon)",
+        "amount": 4.7,
+        "currency": "GBP",
+        "deliveryDays": 2,
+        "shippingType": "buy_shipping"
+      },
+      "trackingNumber": "9400134658757109855",
+      "labelPrinted": true,
+      "labelUrl": "data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"400\" height=\"600\" viewBox=\"0 0 400 600\"><rect width=\"400\" height=\"600\" fill=\"%23fff\" stroke=\"%23000\" stroke-width=\"4\"/><text x=\"20\" y=\"40\" font-family=\"sans-serif\" font-size=\"20\" font-weight=\"bold\">Amazon Buy Shipping</text><text x=\"20\" y=\"70\" font-family=\"sans-serif\" font-size=\"14\">USPS Ground Advantage (via Amazon)</text><line x1=\"20\" y1=\"90\" x2=\"380\" y2=\"90\" stroke=\"%23000\" stroke-width=\"2\"/><text x=\"20\" y=\"120\" font-family=\"sans-serif\" font-size=\"12\">SHIP TO:</text><text x=\"20\" y=\"145\" font-family=\"sans-serif\" font-size=\"16\" font-weight=\"bold\">David Miller</text><text x=\"20\" y=\"170\" font-family=\"sans-serif\" font-size=\"13\">1428 Elm Street</text><text x=\"20\" y=\"195\" font-family=\"sans-serif\" font-size=\"13\">Los Angeles, CA 90012</text><text x=\"20\" y=\"220\" font-family=\"sans-serif\" font-size=\"13\">US</text><line x1=\"20\" y1=\"240\" x2=\"380\" y2=\"240\" stroke=\"%23000\" stroke-width=\"2\"/><text x=\"20\" y=\"270\" font-family=\"sans-serif\" font-size=\"14\" font-weight=\"bold\">TRACKING: 9400134658757109855</text><rect x=\"40\" y=\"300\" width=\"320\" height=\"80\" fill=\"%23000\"/><text x=\"200\" y=\"350\" font-family=\"monospace\" font-size=\"18\" fill=\"%23fff\" text-anchor=\"middle\">|||| | ||||| || ||||||</text><text x=\"200\" y=\"410\" font-family=\"monospace\" font-size=\"14\" text-anchor=\"middle\">9400134658757109855</text><line x1=\"20\" y1=\"440\" x2=\"380\" y2=\"440\" stroke=\"%23000\" stroke-width=\"2\"/><text x=\"20\" y=\"470\" font-family=\"sans-serif\" font-size=\"12\">ORDER: AMZ-882-9930129 (AMAZON)</text><text x=\"20\" y=\"495\" font-family=\"sans-serif\" font-size=\"11\">TEMPLATE: Amazon Buy Shipping - USPS Ground</text></svg>",
+      "templateId": "tmpl_amz_buy_usps",
+      "channelConfirmed": true,
+      "channelConfirmedAt": "2026-10-10T16:47:38.426Z",
+      "dispatchedAt": "2026-10-10T16:47:38.426Z"
+    },
+    {
+      "id": "EBAY-77210928-X",
+      "source": "ebay",
+      "status": "pending",
+      "buyerName": "Sarah Jenkins",
+      "buyerEmail": "sjenkins.92@example.com",
+      "shippingAddress": {
+        "name": "Sarah Jenkins",
+        "addressLine1": "782 Pine Oak Drive",
+        "city": "Seattle",
+        "stateOrRegion": "WA",
+        "postalCode": "98101",
+        "countryCode": "US",
+        "phone": "+1 206-555-0143"
+      },
+      "items": [
+        {
+          "sku": "EB-HOME-GARDEN",
+          "title": "Eco-Friendly Bamboo Cutting Board Set",
+          "quantity": 1,
+          "price": 34
+        }
+      ],
+      "orderDate": "2026-10-10T04:47:30.247Z",
+      "totalAmount": 34,
+      "currency": "GBP",
+      "tags": [
+        "Extra Next Day Delivery"
+      ]
+    },
+    {
+      "id": "AMZ-103-9940122",
+      "source": "amazon",
+      "status": "pending",
+      "buyerName": "Michael Robert",
+      "buyerEmail": "mrobert.tech@example.com",
+      "shippingAddress": {
+        "name": "Michael Robert",
+        "addressLine1": "3200 North Pecos Rd",
+        "city": "Las Vegas",
+        "stateOrRegion": "NV",
+        "postalCode": "89115",
+        "countryCode": "US",
+        "phone": "+1 702-555-0122"
+      },
+      "items": [
+        {
+          "sku": "AMZ-OFFICE-CHAIR",
+          "title": "Ergonomic Mesh Swivel Desk Chair",
+          "quantity": 1,
+          "price": 189.99
+        }
+      ],
+      "orderDate": "2026-10-09T22:47:30.247Z",
+      "totalAmount": 189.99,
+      "currency": "GBP",
+      "weightOz": 380,
+      "tags": [
+        "Prime Orders"
+      ]
+    },
+    {
+      "id": "EBAY-99301292-A",
+      "source": "ebay",
+      "status": "pending",
+      "buyerName": "Emma Watson",
+      "buyerEmail": "emma.w@example.com",
+      "shippingAddress": {
+        "name": "Emma Watson",
+        "addressLine1": "45 Broad Street Lane",
+        "city": "Boston",
+        "stateOrRegion": "MA",
+        "postalCode": "02111",
+        "countryCode": "US"
+      },
+      "items": [
+        {
+          "sku": "EB-KITCH-BLNDR",
+          "title": "High-Speed Professional Kitchen Blender 1200W",
+          "quantity": 1,
+          "price": 79.99
+        }
+      ],
+      "orderDate": "2026-10-09T16:47:30.247Z",
+      "totalAmount": 79.99,
+      "currency": "GBP",
+      "dimensions": {
+        "length": 14,
+        "width": 10,
+        "height": 10
+      },
+      "tags": [
+        "Standard Delivery"
+      ]
+    },
+    {
+      "id": "AMZ-904-1120492",
+      "source": "amazon",
+      "status": "shipped",
+      "buyerName": "Sophia Loren",
+      "buyerEmail": "sloren@example.com",
+      "shippingAddress": {
+        "name": "Sophia Loren",
+        "addressLine1": "522 Ocean Boulevard",
+        "city": "Miami",
+        "stateOrRegion": "FL",
+        "postalCode": "33139",
+        "countryCode": "US"
+      },
+      "items": [
+        {
+          "sku": "AMZ-FASH-GLASSES",
+          "title": "Polarized Retro Aviator Sunglasses UV400",
+          "quantity": 1,
+          "price": 22.5
+        }
+      ],
+      "orderDate": "2026-10-08T16:47:30.247Z",
+      "totalAmount": 22.5,
+      "currency": "GBP",
+      "weightOz": 6,
+      "dimensions": {
+        "length": 6,
+        "width": 4,
+        "height": 2
+      },
+      "trackingNumber": "1Z999AA10123456784",
+      "selectedRate": {
+        "id": "rate_standard_amz_ship",
+        "carrierName": "Amazon Shipping",
+        "serviceName": "Amazon Ground Shipping v2",
+        "amount": 4.85,
+        "currency": "GBP",
+        "deliveryDays": 3,
+        "shippingType": "shipping_v2"
+      },
+      "shippedAt": "2026-10-09T00:47:30.247Z",
+      "labelUrl": "mock_label_base64_already_shipped",
+      "tags": [
+        "Prime Orders"
+      ]
+    }
+  ],
+  "appOrigin": {
+    "country": "US",
+    "city": "Atlanta",
+    "state": "GA",
+    "zip": "30309"
+  },
+  "appCurrency": "GBP",
+  "appUnitSystem": "metric",
+  "inventoryThreshold": 5,
+  "skuMappings": [
+    {
+      "id": "map_1",
+      "channelSku": "AMZ-EARBUDS-PRO-BLK",
+      "warehouseSku": "AMZ-ELEC-402",
+      "channel": "amazon"
+    },
+    {
+      "id": "map_2",
+      "channelSku": "AMZ-CABLE-USB-6FT",
+      "warehouseSku": "AMZ-CABLE-USB",
+      "channel": "amazon"
+    },
+    {
+      "id": "map_3",
+      "channelSku": "EBAY-BAMBOO-BOARDS-3PC",
+      "warehouseSku": "EB-HOME-GARDEN",
+      "channel": "ebay"
+    },
+    {
+      "id": "map_4",
+      "channelSku": "EBAY-BLENDER-PRO-1200",
+      "warehouseSku": "EB-KITCH-BLNDR",
+      "channel": "ebay"
+    }
+  ],
+  "carrierLogs": [],
+  "templates": [
+    {
+      "id": "shipping_label_4x6",
+      "name": "Standard Shipping Label (4\"x6\")",
+      "type": "label",
+      "width": 400,
+      "height": 600,
+      "elements": []
+    }
+  ],
+  "shippingPresets": [
+    {
+      "id": "preset_1",
+      "name": "USPS Ground",
+      "carrierName": "Amazon Buy Shipping",
+      "serviceName": "USPS Ground Advantage (via Amazon)",
+      "shippingType": "buy_shipping",
+      "amount": 4.75,
+      "currency": "USD",
+      "deliveryDays": 3
+    },
+    {
+      "id": "preset_2",
+      "name": "UPS Ground Premium",
+      "carrierName": "Amazon Buy Shipping",
+      "serviceName": "UPS Ground (via Buy Shipping)",
+      "shippingType": "buy_shipping",
+      "amount": 8.4,
+      "currency": "USD",
+      "deliveryDays": 2
+    },
+    {
+      "id": "preset_3",
+      "name": "Amazon Standard",
+      "carrierName": "Amazon Shipping v2",
+      "serviceName": "Amazon Ground Shipping v2",
+      "shippingType": "shipping_v2",
+      "amount": 4.45,
+      "currency": "USD",
+      "deliveryDays": 3
+    },
+    {
+      "id": "preset_4",
+      "name": "Amazon Express 1-Day",
+      "carrierName": "Amazon Shipping v2",
+      "serviceName": "Amazon Premium Delivery 1-Day",
+      "shippingType": "shipping_v2",
+      "amount": 14.6,
+      "currency": "USD",
+      "deliveryDays": 1
+    }
+  ],
+  "shippingTemplates": [
+    {
+      "id": "tmpl_amz_buy_usps",
+      "name": "Amazon Buy Shipping - USPS Ground",
+      "carrierName": "Amazon Buy Shipping",
+      "serviceName": "USPS Ground Advantage (via Amazon)",
+      "serviceCode": "USPS_GROUND_ADV",
+      "packageType": "parcel",
+      "defaultWeightOz": 16,
+      "dimensions": {
+        "length": 10,
+        "width": 7,
+        "height": 4
+      },
+      "channelAffinity": "amazon",
+      "paperSize": "4x6",
+      "trackingPrefix": "9400",
+      "isDefault": true
+    },
+    {
+      "id": "tmpl_rm_24_tracked",
+      "name": "Royal Mail 24 Tracked",
+      "carrierName": "Royal Mail",
+      "serviceName": "Royal Mail 24 Tracked",
+      "serviceCode": "RM_TRK_24",
+      "packageType": "parcel",
+      "defaultWeightOz": 18,
+      "dimensions": {
+        "length": 12,
+        "width": 8,
+        "height": 5
+      },
+      "channelAffinity": "ebay",
+      "paperSize": "4x6",
+      "trackingPrefix": "GB",
+      "isDefault": false
+    },
+    {
+      "id": "tmpl_dpd_next_day",
+      "name": "DPD Next Day Parcel",
+      "carrierName": "DPD Express",
+      "serviceName": "DPD 1-Day Door-to-Door Parcel",
+      "serviceCode": "DPD_1DAY",
+      "packageType": "parcel",
+      "defaultWeightOz": 32,
+      "dimensions": {
+        "length": 14,
+        "width": 10,
+        "height": 6
+      },
+      "channelAffinity": "shopify",
+      "paperSize": "4x6",
+      "trackingPrefix": "DPD",
+      "isDefault": false
+    },
+    {
+      "id": "tmpl_fedex_home",
+      "name": "FedEx Home Delivery",
+      "carrierName": "FedEx",
+      "serviceName": "FedEx Home Delivery",
+      "serviceCode": "FEDEX_HOME",
+      "packageType": "box_medium",
+      "defaultWeightOz": 24,
+      "dimensions": {
+        "length": 12,
+        "width": 9,
+        "height": 6
+      },
+      "channelAffinity": "all",
+      "paperSize": "4x6",
+      "trackingPrefix": "7946",
+      "isDefault": false
+    },
+    {
+      "id": "tmpl_ups_ground",
+      "name": "UPS Ground Commercial",
+      "carrierName": "UPS",
+      "serviceName": "UPS Ground Commercial",
+      "serviceCode": "UPS_GND",
+      "packageType": "parcel",
+      "defaultWeightOz": 28,
+      "dimensions": {
+        "length": 12,
+        "width": 10,
+        "height": 5
+      },
+      "channelAffinity": "all",
+      "paperSize": "4x6",
+      "trackingPrefix": "1Z",
+      "isDefault": false
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Multi-Channel Fulfillment Manager",
+  "description": "Download Amazon and eBay orders, check real-time rates, buy Amazon Shipping and Buy Shipping labels, bulk-process shipments, and track fulfillment in one unified dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

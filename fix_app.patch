@@ -1,0 +1,16 @@
+--- src/App.tsx
++++ src/App.tsx
+@@ -1316,7 +1316,7 @@
+                 onUpdateThreshold={handleUpdateThreshold}
+                 bulkStrategy={bulkStrategy}
+                 setBulkStrategy={setBulkStrategy}
+                 onRefreshOrders={fetchOrders}
+                 onRefreshLogs={fetchLogs}
+                 currency={currency}
+                 onUpdateCurrency={handleUpdateCurrency}
+                 unitSystem={unitSystem}
+-                onUpdateSpecs={handleUpdateSpecs}
+-                onUpdateOrder={handleUpdateOrder}
++                onUpdateUnitSystem={handleUpdateUnitSystem}
++              />
+             )}

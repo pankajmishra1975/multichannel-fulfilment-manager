@@ -1,0 +1,73 @@
+with open('src/components/TemplateDesigner.tsx', 'r') as f:
+    content = f.read()
+
+import re
+
+new_presets = """  const PLATFORM_PRESETS = [
+    { label: '-- Select Data Variable --', value: '' },
+    { label: 'Customer: First Name', value: '{{CUSTOMER_FIRST_NAME}}' },
+    { label: 'Customer: Last Name', value: '{{CUSTOMER_LAST_NAME}}' },
+    { label: 'Customer: Full Name', value: '{{CUSTOMER_FULL_NAME}}' },
+    { label: 'Customer: Email Address', value: '{{CUSTOMER_EMAIL}}' },
+    { label: 'Customer: Phone Number', value: '{{CUSTOMER_PHONE}}' },
+    { label: 'Customer: Mobile Number', value: '{{CUSTOMER_MOBILE}}' },
+    { label: 'Customer: Company Name', value: '{{CUSTOMER_COMPANY}}' },
+    { label: 'Customer: Tax ID / VAT', value: '{{CUSTOMER_TAX_ID}}' },
+    { label: 'Shipping: Full Name', value: '{{SHIPPING_FULL_NAME}}' },
+    { label: 'Shipping: Address Line 1', value: '{{SHIPPING_ADDRESS_1}}' },
+    { label: 'Shipping: Address Line 2', value: '{{SHIPPING_ADDRESS_2}}' },
+    { label: 'Shipping: Address Line 3', value: '{{SHIPPING_ADDRESS_3}}' },
+    { label: 'Shipping: City', value: '{{SHIPPING_CITY}}' },
+    { label: 'Shipping: State/Region', value: '{{SHIPPING_STATE}}' },
+    { label: 'Shipping: Postcode/Zip', value: '{{SHIPPING_POSTCODE}}' },
+    { label: 'Shipping: Country', value: '{{SHIPPING_COUNTRY}}' },
+    { label: 'Shipping: Country Code', value: '{{SHIPPING_COUNTRY_CODE}}' },
+    { label: 'Billing: Full Name', value: '{{BILLING_FULL_NAME}}' },
+    { label: 'Billing: Address Line 1', value: '{{BILLING_ADDRESS_1}}' },
+    { label: 'Billing: Address Line 2', value: '{{BILLING_ADDRESS_2}}' },
+    { label: 'Billing: City', value: '{{BILLING_CITY}}' },
+    { label: 'Billing: State/Region', value: '{{BILLING_STATE}}' },
+    { label: 'Billing: Postcode/Zip', value: '{{BILLING_POSTCODE}}' },
+    { label: 'Billing: Country', value: '{{BILLING_COUNTRY}}' },
+    { label: 'Product: Title', value: '{{PRODUCT_TITLE}}' },
+    { label: 'Product: SKU', value: '{{PRODUCT_SKU}}' },
+    { label: 'Product: ASIN / UPC', value: '{{PRODUCT_IDENTIFIER}}' },
+    { label: 'Product: Barcode String', value: '{{PRODUCT_BARCODE}}' },
+    { label: 'Product: Quantity Ordered', value: '{{PRODUCT_QUANTITY}}' },
+    { label: 'Product: Unit Price', value: '{{PRODUCT_UNIT_PRICE}}' },
+    { label: 'Product: Total Price', value: '{{PRODUCT_TOTAL_PRICE}}' },
+    { label: 'Product: Weight (Unit)', value: '{{PRODUCT_WEIGHT}}' },
+    { label: 'Product: Dimensions', value: '{{PRODUCT_DIMENSIONS}}' },
+    { label: 'Product: Bin Location', value: '{{PRODUCT_BIN_LOCATION}}' },
+    { label: 'Product: Warehouse Zone', value: '{{PRODUCT_WAREHOUSE_ZONE}}' },
+    { label: 'Product: Image URL (Main)', value: '{{PRODUCT_IMAGE_URL}}' },
+    { label: 'Product: Thumbnail URL', value: '{{PRODUCT_THUMBNAIL_URL}}' },
+    { label: 'Product: Variation / Options', value: '{{PRODUCT_VARIATION}}' },
+    { label: 'Order: Internal ID', value: '{{ORDER_ID}}' },
+    { label: 'Order: Channel/Source ID', value: '{{ORDER_CHANNEL_ID}}' },
+    { label: 'Order: Purchase Date', value: '{{ORDER_DATE}}' },
+    { label: 'Order: Purchase Time', value: '{{ORDER_TIME}}' },
+    { label: 'Order: Currency', value: '{{ORDER_CURRENCY}}' },
+    { label: 'Order: Subtotal', value: '{{ORDER_SUBTOTAL}}' },
+    { label: 'Order: Tax / VAT', value: '{{ORDER_TAX}}' },
+    { label: 'Order: Shipping Cost', value: '{{ORDER_SHIPPING_COST}}' },
+    { label: 'Order: Total', value: '{{ORDER_TOTAL}}' },
+    { label: 'Order: Payment Method', value: '{{ORDER_PAYMENT_METHOD}}' },
+    { label: 'Order: Source Channel', value: '{{ORDER_SOURCE_CHANNEL}}' },
+    { label: 'Carrier: Name', value: '{{SHIPPING_CARRIER}}' },
+    { label: 'Carrier: Service Level', value: '{{SHIPPING_SERVICE}}' },
+    { label: 'Carrier: Tracking Number', value: '{{TRACKING_NUMBER}}' },
+    { label: 'Carrier: Label Barcode', value: '{{SHIPPING_LABEL_BARCODE}}' },
+    { label: 'Misc: Delivery Instructions', value: '{{DELIVERY_INSTRUCTIONS}}' },
+    { label: 'Misc: Gift Message', value: '{{GIFT_MESSAGE}}' },
+    { label: 'Store: Logo URL', value: '{{STORE_LOGO_URL}}' },
+    { label: 'Store: Name', value: '{{STORE_NAME}}' },
+    { label: 'Store: Contact Email', value: '{{STORE_CONTACT_EMAIL}}' },
+    { label: 'Store: Return Address', value: '{{STORE_RETURN_ADDRESS}}' },
+    { label: 'System: Current Date', value: '{{CURRENT_DATE}}' }
+  ];"""
+
+content = re.sub(r'const PLATFORM_PRESETS = \[[^\]]+\];', new_presets, content)
+
+with open('src/components/TemplateDesigner.tsx', 'w') as f:
+    f.write(content)
